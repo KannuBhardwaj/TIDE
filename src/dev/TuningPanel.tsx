@@ -69,8 +69,8 @@ export function TuningPanel({ stats }: { stats: GameStats | null }) {
             </div>
           ))}
           <div className="mt-1 border-t border-white/10 pt-2 text-[10px] leading-relaxed text-pearl/40">
-            drag water with the mouse · WASD/arrows bat the ball · <b className="text-gold">D</b>{' '}
-            cycles debug view
+            mouse drag stirs water · <b className="text-gold">`</b> cycles debug ·{' '}
+            <b className="text-gold">R</b> restarts match
           </div>
         </div>
       )}

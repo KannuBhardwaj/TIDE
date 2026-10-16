@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { TideGame, type GameStats } from '../game/loop';
 import { TuningPanel } from '../dev/TuningPanel';
+import { Hud } from './Hud';
 
 export function ArenaScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,6 +16,8 @@ export function ArenaScreen() {
     try {
       game = new TideGame(canvas);
       gameRef.current = game;
+      // dev handle for manual testing + the capture tool
+      (window as unknown as { tide?: TideGame }).tide = game;
       // throttle React updates: the game calls onStats every frame, we store a
       // ref and flush to state a few times a second.
       let last = 0;
@@ -55,7 +58,10 @@ export function ArenaScreen() {
           </div>
         </div>
       ) : (
-        <TuningPanel stats={stats} />
+        <>
+          <Hud stats={stats} />
+          <TuningPanel stats={stats} />
+        </>
       )}
     </div>
   );

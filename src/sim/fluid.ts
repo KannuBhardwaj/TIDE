@@ -22,6 +22,7 @@ import {
   DIVERGENCE_FRAG,
   GRADIENT_SUBTRACT_FRAG,
   PRESSURE_FRAG,
+  RADIAL_FRAG,
   SPLAT_FRAG,
   VORTICITY_FRAG,
 } from '../render/shaders';
@@ -55,6 +56,7 @@ export class FluidSolver {
   private pGradient: Program;
   private pClear: Program;
   private pSplat: Program;
+  private pRadial: Program;
 
   readonly simRes: number;
   readonly dyeRes: number;
@@ -87,6 +89,7 @@ export class FluidSolver {
     this.pGradient = programFrom(gl, BASE_VERT, GRADIENT_SUBTRACT_FRAG);
     this.pClear = programFrom(gl, BASE_VERT, CLEAR_FRAG);
     this.pSplat = programFrom(gl, BASE_VERT, SPLAT_FRAG);
+    this.pRadial = programFrom(gl, BASE_VERT, RADIAL_FRAG);
 
     this.coarse = new CoarseField(gl, this.blitter, 64);
   }
@@ -95,7 +98,7 @@ export class FluidSolver {
     this.gl.uniform2f(p.uniforms.texelSize, field.texelX, field.texelY);
   }
 
-  step(dt: number) {
+  step(dt: number, obstacle: FBO) {
     const gl = this.gl;
     const vel = this.velocity;
     gl.disable(gl.BLEND);
@@ -120,6 +123,7 @@ export class FluidSolver {
     this.pDivergence.bind();
     this.setTexel(this.pDivergence, vel);
     gl.uniform1i(this.pDivergence.uniforms.uVelocity, vel.read.attach(0));
+    gl.uniform1i(this.pDivergence.uniforms.uObstacle, obstacle.attach(1));
     this.blitter.blit(this.divergence);
 
     // decay pressure, then Jacobi iterations
@@ -133,6 +137,7 @@ export class FluidSolver {
     this.pPressure.bind();
     this.setTexel(this.pPressure, this.pressure);
     gl.uniform1i(this.pPressure.uniforms.uDivergence, this.divergence.attach(0));
+    gl.uniform1i(this.pPressure.uniforms.uObstacle, obstacle.attach(2));
     const iters = config.sim.pressureIterations;
     for (let i = 0; i < iters; i++) {
       gl.uniform1i(this.pPressure.uniforms.uPressure, this.pressure.read.attach(1));
@@ -145,6 +150,7 @@ export class FluidSolver {
     this.setTexel(this.pGradient, vel);
     gl.uniform1i(this.pGradient.uniforms.uPressure, this.pressure.read.attach(0));
     gl.uniform1i(this.pGradient.uniforms.uVelocity, vel.read.attach(1));
+    gl.uniform1i(this.pGradient.uniforms.uObstacle, obstacle.attach(2));
     this.blitter.blit(vel.write);
     vel.swap();
 
@@ -182,6 +188,20 @@ export class FluidSolver {
     gl.uniform2f(this.pSplat.uniforms.point, x, y);
     gl.uniform3f(this.pSplat.uniforms.color, dx, dy, 0);
     gl.uniform1f(this.pSplat.uniforms.radius, radius / 100);
+    this.blitter.blit(this.velocity.write);
+    this.velocity.swap();
+  }
+
+  /** Radial force within `radiusUv`: strength > 0 pushes out, < 0 pulls in. */
+  splatRadial(x: number, y: number, radiusUv: number, strength: number) {
+    const gl = this.gl;
+    this.pRadial.bind();
+    this.setTexel(this.pRadial, this.velocity);
+    gl.uniform1i(this.pRadial.uniforms.uTarget, this.velocity.read.attach(0));
+    gl.uniform1f(this.pRadial.uniforms.aspectRatio, this.aspect);
+    gl.uniform2f(this.pRadial.uniforms.point, x, y);
+    gl.uniform1f(this.pRadial.uniforms.radius, radiusUv * radiusUv);
+    gl.uniform1f(this.pRadial.uniforms.strength, strength);
     this.blitter.blit(this.velocity.write);
     this.velocity.swap();
   }

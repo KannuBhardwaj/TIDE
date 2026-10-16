@@ -50,6 +50,7 @@ in vec2 vR;
 in vec2 vT;
 in vec2 vB;
 uniform sampler2D uVelocity;
+uniform sampler2D uObstacle;
 out vec4 frag;
 void main() {
   float L = texture(uVelocity, vL).x;
@@ -57,10 +58,16 @@ void main() {
   float T = texture(uVelocity, vT).y;
   float B = texture(uVelocity, vB).y;
   vec2 C = texture(uVelocity, vUv).xy;
+  // arena edges: no-penetration
   if (vL.x < 0.0) { L = -C.x; }
   if (vR.x > 1.0) { R = -C.x; }
   if (vT.y > 1.0) { T = -C.y; }
   if (vB.y < 0.0) { B = -C.y; }
+  // internal solid obstacles: no flow across the boundary
+  if (texture(uObstacle, vL).x > 0.5) { L = -C.x; }
+  if (texture(uObstacle, vR).x > 0.5) { R = -C.x; }
+  if (texture(uObstacle, vT).x > 0.5) { T = -C.y; }
+  if (texture(uObstacle, vB).x > 0.5) { B = -C.y; }
   float div = 0.5 * (R - L + T - B);
   frag = vec4(div, 0.0, 0.0, 1.0);
 }`;
@@ -117,12 +124,19 @@ in vec2 vT;
 in vec2 vB;
 uniform sampler2D uPressure;
 uniform sampler2D uDivergence;
+uniform sampler2D uObstacle;
 out vec4 frag;
 void main() {
+  float C = texture(uPressure, vUv).x;
   float L = texture(uPressure, vL).x;
   float R = texture(uPressure, vR).x;
   float T = texture(uPressure, vT).x;
   float B = texture(uPressure, vB).x;
+  // Neumann at solids: a solid neighbor reflects the center pressure
+  if (texture(uObstacle, vL).x > 0.5) { L = C; }
+  if (texture(uObstacle, vR).x > 0.5) { R = C; }
+  if (texture(uObstacle, vT).x > 0.5) { T = C; }
+  if (texture(uObstacle, vB).x > 0.5) { B = C; }
   float divergence = texture(uDivergence, vUv).x;
   float pressure = (L + R + B + T - divergence) * 0.25;
   frag = vec4(pressure, 0.0, 0.0, 1.0);
@@ -136,12 +150,23 @@ in vec2 vT;
 in vec2 vB;
 uniform sampler2D uPressure;
 uniform sampler2D uVelocity;
+uniform sampler2D uObstacle;
 out vec4 frag;
 void main() {
+  // velocity inside a solid is zero (no-slip interior)
+  if (texture(uObstacle, vUv).x > 0.5) {
+    frag = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+  float C = texture(uPressure, vUv).x;
   float L = texture(uPressure, vL).x;
   float R = texture(uPressure, vR).x;
   float T = texture(uPressure, vT).x;
   float B = texture(uPressure, vB).x;
+  if (texture(uObstacle, vL).x > 0.5) { L = C; }
+  if (texture(uObstacle, vR).x > 0.5) { R = C; }
+  if (texture(uObstacle, vT).x > 0.5) { T = C; }
+  if (texture(uObstacle, vB).x > 0.5) { B = C; }
   vec2 velocity = texture(uVelocity, vUv).xy;
   velocity -= vec2(R - L, T - B);
   frag = vec4(velocity, 0.0, 1.0);
@@ -182,6 +207,44 @@ void main() {
 }`;
 
 /**
+ * Radial force splat: pushes water outward (strength > 0) or pulls it inward
+ * (strength < 0) within a soft-falloff radius around `point`. Used by the
+ * PUSH and PINCH abilities — only water inside the radius is affected.
+ */
+export const RADIAL_FRAG = `${HEADER}
+in vec2 vUv;
+uniform sampler2D uTarget;
+uniform vec2 point;
+uniform float radius;   // variance-like (R*R)
+uniform float strength; // + outward (push), - inward (pinch)
+uniform float aspectRatio;
+out vec4 frag;
+void main() {
+  vec2 p = vUv - point;
+  p.x *= aspectRatio;
+  float dist = length(p);
+  float fall = exp(-dist * dist / radius);
+  vec2 dir = dist > 1e-4 ? p / dist : vec2(0.0);
+  vec2 add = dir * strength * fall;
+  vec2 base = texture(uTarget, vUv).xy;
+  frag = vec4(base + add, 0.0, 1.0);
+}`;
+
+/** Stamp a filled circle into the obstacle mask (use with MAX blending). */
+export const OBSTACLE_CIRCLE_FRAG = `${HEADER}
+in vec2 vUv;
+uniform vec2 point;
+uniform float radius; // uv (aspect-corrected on x)
+uniform float aspectRatio;
+out vec4 frag;
+void main() {
+  vec2 p = vUv - point;
+  p.x *= aspectRatio;
+  float c = 1.0 - smoothstep(radius * 0.86, radius, length(p));
+  frag = vec4(c, 0.0, 0.0, 1.0);
+}`;
+
+/**
  * Aurora water display pass (M1 look; M6 adds caustics/refraction/foam).
  * Combines: deep base gradient, bioluminescent dye glow (teal core, rose on
  * fast water), a velocity-driven sheen, the pearl ball with motion stretch,
@@ -201,6 +264,21 @@ uniform vec3 cRose;
 uniform vec3 cPearl;
 uniform vec2 uBallPos;
 uniform float uBallRadius;
+// teams, players, walls
+uniform vec3 cTeamA;
+uniform vec3 cTeamB;
+uniform vec2 uPlayerPos[2];
+uniform float uPlayerActive[2]; // 1 if in play
+uniform float uPlayerWall[2];   // 1 if wall raised
+uniform float uPlayerEnergy[2];
+uniform float uPlayerRadius;
+uniform float uWallRadius;
+// goals
+uniform float uGoalInset;
+uniform float uGoalHalf;
+uniform float uPostRadius;
+uniform float uGoalFlashA;
+uniform float uGoalFlashB;
 out vec4 frag;
 
 // cheap value-noise for subtle floor shimmer
@@ -210,6 +288,14 @@ float noise(vec2 p){
   vec2 u = f*f*(3.0-2.0*f);
   return mix(mix(hash(i), hash(i+vec2(1,0)), u.x),
              mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y);
+}
+
+// isotropic (screen-correct) space mapping + circle helpers
+vec2 uvToP(vec2 q){ return vec2((q.x * 2.0 - 1.0) * aspectRatio, q.y * 2.0 - 1.0); }
+float discFill(vec2 pp, vec2 c, float rp){ return smoothstep(rp, rp * 0.78, length(pp - c)); }
+float ringGlow(vec2 pp, vec2 c, float rp){
+  float dd = abs(length(pp - c) - rp);
+  return exp(-dd * dd / (rp * rp * 0.08));
 }
 
 void main() {
@@ -238,12 +324,52 @@ void main() {
   // subtle luminous core only where dye is very dense (restrained)
   color += mix(cTeal, cPearl, 0.4) * smoothstep(0.7, 1.3, d) * (0.25 * glow);
 
+  // --- goals: glowing mouths at each end (left = Team A, right = Team B) ---
+  float mouth = step(0.5 - uGoalHalf, uv.y) * step(uv.y, 0.5 + uGoalHalf);
+  float gL = mouth * smoothstep(uGoalInset * 2.2, 0.0, uv.x);
+  float gR = mouth * smoothstep(uGoalInset * 2.2, 0.0, 1.0 - uv.x);
+  color += cTeamA * gL * (0.22 + 0.9 * uGoalFlashA);
+  color += cTeamB * gR * (0.22 + 0.9 * uGoalFlashB);
+  // goal posts (solid-looking bright discs at the mouth edges)
+  float postR = uPostRadius * 2.0;
+  vec2 posts[4];
+  posts[0] = uvToP(vec2(uGoalInset, 0.5 - uGoalHalf));
+  posts[1] = uvToP(vec2(uGoalInset, 0.5 + uGoalHalf));
+  posts[2] = uvToP(vec2(1.0 - uGoalInset, 0.5 - uGoalHalf));
+  posts[3] = uvToP(vec2(1.0 - uGoalInset, 0.5 + uGoalHalf));
+  for (int i = 0; i < 4; i++) {
+    vec3 pc = i < 2 ? cTeamA : cTeamB;
+    float pf = discFill(p, posts[i], postR);
+    color = mix(color, mix(pc, cPearl, 0.3), pf * 0.9);
+    color += pc * ringGlow(p, posts[i], postR) * 0.25;
+  }
+
+  // --- player markers + walls ---
+  for (int i = 0; i < 2; i++) {
+    if (uPlayerActive[i] < 0.5) continue;
+    vec3 tc = i == 0 ? cTeamA : cTeamB;
+    vec2 pc = uvToP(uPlayerPos[i]);
+    // wall barrier (translucent energy disc + fresnel rim)
+    if (uPlayerWall[i] > 0.5) {
+      float wr = uWallRadius * 2.0;
+      float wf = discFill(p, pc, wr);
+      float wrim = ringGlow(p, pc, wr);
+      color = mix(color, tc * 0.5, wf * 0.35);
+      color += tc * wrim * 0.8;
+    }
+    // marker aura orb, pulsing with energy
+    float mr = uPlayerRadius * 2.0;
+    float md = length(p - pc);
+    float core = smoothstep(mr, mr * 0.6, md);
+    float aura = exp(-md * md / (mr * mr * 2.2)) * (0.35 + 0.4 * uPlayerEnergy[i]);
+    color = mix(color, mix(tc, cPearl, 0.5), core);
+    color += tc * aura;
+  }
+
   // --- the ball: a clean, rigid pearl orb (no deformation) ---
-  vec2 bp = (uBallPos * 2.0 - 1.0);
-  bp.x *= aspectRatio;
-  vec2 bd = p - bp;
-  float bdist = length(bd);
-  float br = uBallRadius * aspectRatio;
+  vec2 bp = uvToP(uBallPos);
+  float bdist = length(p - bp);
+  float br = uBallRadius * 2.0;
   float orb = smoothstep(br, br * 0.78, bdist);
   float rim = smoothstep(br, br * 0.92, bdist) - smoothstep(br * 0.92, br * 0.6, bdist);
   float halo = exp(-bdist / (br * 1.4)) * 0.28;
@@ -265,7 +391,7 @@ void main() {
 export const DEBUG_FRAG = `${HEADER}
 in vec2 vUv;
 uniform sampler2D uTex;
-uniform int mode; // 0 vel, 1 pressure, 2 dye, 3 curl
+uniform int mode; // 0 vel, 1 pressure, 2 dye, 3 curl, 4 obstacle
 out vec4 frag;
 void main() {
   vec4 t = texture(uTex, vUv);
@@ -277,6 +403,9 @@ void main() {
   } else if (mode == 3) {
     float c = t.x;
     frag = vec4(max(c, 0.0), 0.0, max(-c, 0.0), 1.0);
+  } else if (mode == 4) {
+    float s = t.x; // obstacle mask
+    frag = vec4(s * 0.3, s * 0.9, s, 1.0);
   } else {
     frag = vec4(t.rgb, 1.0); // dye
   }

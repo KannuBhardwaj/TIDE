@@ -64,6 +64,31 @@ export const TUNING: TuneGroup[] = [
     ],
   },
   {
+    title: 'Players',
+    group: 'players',
+    fields: [
+      f('players', 'moveSpeed', 'Move speed', 0.1, 1.2, 0.02),
+      f('players', 'radius', 'Marker radius', 0.015, 0.06, 0.002),
+      f('players', 'wakeForce', 'Marker wake', 0, 40, 1),
+      f('players', 'energyRegen', 'Energy regen', 0.05, 0.8, 0.01),
+    ],
+  },
+  {
+    title: 'Abilities',
+    group: 'abilities',
+    fields: [
+      f('abilities', 'pushForce', 'Push force', 50, 600, 10),
+      f('abilities', 'pushRadius', 'Push radius', 0.06, 0.35, 0.01),
+      f('abilities', 'pushCost', 'Push cost', 0, 0.6, 0.02),
+      f('abilities', 'pushCooldown', 'Push cooldown', 0.1, 1.5, 0.05),
+      f('abilities', 'pinchForce', 'Pinch force', 50, 500, 10),
+      f('abilities', 'pinchRadius', 'Pinch radius', 0.06, 0.3, 0.01),
+      f('abilities', 'pinchDrain', 'Pinch drain', 0.05, 0.8, 0.02),
+      f('abilities', 'wallRadius', 'Wall radius', 0.04, 0.16, 0.005),
+      f('abilities', 'wallDrain', 'Wall drain', 0.1, 0.9, 0.02),
+    ],
+  },
+  {
     title: 'Render',
     group: 'render',
     fields: [
