@@ -9,7 +9,8 @@ import { Blitter, GLContext, Program, createGLContext, programFrom } from '../re
 import { BASE_VERT, DEBUG_FRAG, WATER_FRAG } from '../render/shaders';
 import { paletteRgb } from '../render/palette';
 import { FluidSolver } from '../sim/fluid';
-import { Ball } from '../sim/ball';
+import { Post } from '../render/post';
+import { Ball, FIELD_TO_WORLD } from '../sim/ball';
 import { Obstacles, type Circle } from '../sim/obstacles';
 import { Player, NEUTRAL_INPUT, type PlayerInput, type Team } from './player';
 import { Match, detectGoal, type MatchState, type GoalGeom } from './match';
@@ -44,10 +45,23 @@ export interface GameStats {
   grade: GradeLabel;
   gradeSlot: 0 | 1 | null;
   trackTitle?: string;
+  countdown: number; // 0 = none, else seconds left before next kickoff
 }
 
 const START_A = { x: 0.25, y: 0.5 };
 const START_B = { x: 0.75, y: 0.5 };
+
+// goal shatter minigame
+const SHATTER_SEC = 6;
+const COUNTDOWN_SEC = 3;
+const SHARD_COUNT = 18;
+interface Shard {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+}
 
 export class TideGame {
   private canvas: HTMLCanvasElement;
@@ -55,6 +69,7 @@ export class TideGame {
   private gl: WebGL2RenderingContext;
   private blitter: Blitter;
   private fluid: FluidSolver;
+  private post: Post;
   private obstacles: Obstacles;
   private ball: Ball;
   private players: [Player, Player];
@@ -72,10 +87,21 @@ export class TideGame {
   private debugMode: DebugMode = 'off';
   private fpsEMA = 60;
 
-  // goal moment
-  private goalTimer = 0;
+  // goal moment / camera
   private flashA = 0;
   private flashB = 0;
+  private shockProgress = 2; // >= 1 inactive
+  private shockX = 0.5;
+  private shockY = 0.5;
+  private shockStr = 0;
+  private shakeMag = 0;
+  // shatter minigame state
+  private shards: Shard[] = [];
+  private goalElapsed = 0;
+  private countdown = 0;
+  private uShardPos = new Float32Array(40);
+  private uShardSize = new Float32Array(20);
+  private scratchVec = { x: 0, y: 0 };
 
   // music / crescendo
   music: MusicRuntime = SILENT_MUSIC;
@@ -104,7 +130,8 @@ export class TideGame {
 
   onStats?: (s: GameStats) => void;
   onGoal?: (team: Team) => void;
-  onPush?: (slot: 0 | 1) => void;
+  onPush?: (slot: 0 | 1, x: number, power: number) => void;
+  onBallHit?: (x: number, strength: number, kind: 'wall' | 'bound') => void;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -114,6 +141,7 @@ export class TideGame {
     this.resize();
 
     this.fluid = new FluidSolver(this.ctx, canvas.width, canvas.height);
+    this.post = new Post(this.ctx, this.blitter, canvas.width, canvas.height);
     this.obstacles = new Obstacles(this.ctx, this.fluid.velocity.width, this.fluid.velocity.height);
     this.ball = new Ball(0.5, 0.5);
     this.players = [
@@ -152,6 +180,7 @@ export class TideGame {
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
+      this.post?.resize(w, h);
     }
   }
 
@@ -245,6 +274,18 @@ export class TideGame {
     return this.edgeGlow;
   }
 
+  /** per-frame state for the SFX layer. */
+  audioState() {
+    return {
+      glow: this.edgeGlow,
+      peak: this.music.peakActive(),
+      players: [
+        { x: this.players[0].pos.x, wall: this.players[0].wallActive, pinch: this.players[0].pinchActive, active: this.players[0].active },
+        { x: this.players[1].pos.x, wall: this.players[1].wallActive, pinch: this.players[1].pinchActive, active: this.players[1].active },
+      ] as const,
+    };
+  }
+
   private registerGrade(slot: 0 | 1, label: GradeLabel) {
     if (label !== 'none') {
       this.lastGrade = label;
@@ -259,7 +300,8 @@ export class TideGame {
     this.match.registerGoal(team);
     if (team === 'A') this.flashA = 1;
     else this.flashB = 1;
-    this.goalTimer = config.match.goalFreezeSec;
+    this.goalElapsed = 0;
+    this.spawnShards(this.ball.pos.x, this.ball.pos.y);
   }
 
   private resetPositions() {
@@ -287,11 +329,15 @@ export class TideGame {
 
     this.handleMouse();
 
-    // goal-freeze / match timing
+    // goal shatter sequence: shatter (drag shards) -> countdown -> reset
     if (this.match.state === 'goal') {
-      this.goalTimer -= dtReal;
-      if (this.goalTimer <= 0) {
+      this.goalElapsed += dtReal;
+      const total = SHATTER_SEC + COUNTDOWN_SEC;
+      this.countdown = this.goalElapsed < SHATTER_SEC ? 0 : Math.max(1, Math.ceil(total - this.goalElapsed));
+      if (this.goalElapsed >= total) {
         this.resetPositions();
+        this.shards.length = 0;
+        this.countdown = 0;
         this.match.resume();
       }
     }
@@ -304,42 +350,58 @@ export class TideGame {
     const inA = this.inputMode[0] === 'external' ? this.externalInputs[0] ?? NEUTRAL_INPUT : kb[0];
     const inB = this.inputMode[1] === 'external' ? this.externalInputs[1] ?? NEUTRAL_INPUT : kb[1];
 
-    // crescendo state (music is the master clock)
-    this.edgeGlow = this.devGlow ?? this.music.glow();
-    this.beat = this.music.beatPulse();
+    // crescendo state (music is the master clock) + LIVE audio reactivity
+    const live = this.music.level();
+    this.edgeGlow = this.devGlow ?? Math.max(this.music.glow(), live * 0.85);
+    this.beat = Math.min(1, this.music.beatPulse() * 0.45 + live * 0.95);
     const powerInfo = this.music.abilityPower(0);
     const power = powerInfo.mult;
     this.power = power;
     this.gradeFlash = Math.max(0, this.gradeFlash - dtReal * 1.5);
 
+    const shatterPhase = this.match.state === 'goal' && this.goalElapsed < SHATTER_SEC;
+    const movePlayers = playing || shatterPhase; // players move during shatter to drag shards
     while (this.acc >= step && steps < 5) {
-      if (playing) {
+      if (movePlayers) {
         this.players[0].update(step, inA, this.fluid, power);
         this.players[1].update(step, inB, this.fluid, power);
-        if (this.players[0].pushedThisFrame) {
-          this.onPush?.(0);
-          this.registerGrade(0, powerInfo.label);
+        if (playing) {
+          if (this.players[0].pushedThisFrame) {
+            this.onPush?.(0, this.players[0].pos.x, power);
+            this.registerGrade(0, powerInfo.label);
+          }
+          if (this.players[1].pushedThisFrame) {
+            this.onPush?.(1, this.players[1].pos.x, power);
+            this.registerGrade(1, powerInfo.label);
+          }
+          this.injectBallWake();
         }
-        if (this.players[1].pushedThisFrame) {
-          this.onPush?.(1);
-          this.registerGrade(1, powerInfo.label);
-        }
-        this.injectBallWake();
       }
       this.buildObstacles();
       this.fluid.step(step, this.obstacles.mask);
       if (playing) {
         this.ball.update(step, (u, v, out) => this.fluid.coarse.sample(u, v, out), this.circles);
+        this.collideBallWithPlayers();
+        if (this.ball.hitStrength > 0.08 && this.ball.hitKind) {
+          this.onBallHit?.(this.ball.pos.x, this.ball.hitStrength, this.ball.hitKind);
+          if (this.ball.hitStrength > 0.35) {
+            this.shakeMag = Math.max(this.shakeMag, Math.min(this.ball.hitStrength * 0.5, 0.5));
+          }
+        }
         if (this.ball.tidePulse) this.tidePulse();
         this.checkGoal();
+      } else if (shatterPhase) {
+        this.updateShards(step);
       }
       this.acc -= step;
       steps++;
     }
 
-    // decay goal flashes
+    // decay goal flashes + camera effects
     this.flashA = Math.max(0, this.flashA - dtReal * 2.2);
     this.flashB = Math.max(0, this.flashB - dtReal * 2.2);
+    if (this.shockProgress < 1) this.shockProgress += dtReal / 0.6;
+    this.shakeMag *= Math.exp(-dtReal * 6);
 
     this.render(now);
     this.emitStats();
@@ -373,11 +435,17 @@ export class TideGame {
     this.onGoal?.(scorer);
     if (scorer === 'A') this.flashA = 1;
     else this.flashB = 1;
-    this.goalTimer = config.match.goalFreezeSec;
-    // shockwave-ish burst at the goal mouth
+    this.goalElapsed = 0;
+    this.spawnShards(this.ball.pos.x, this.ball.pos.y);
+    // shockwave + shake + fluid burst at the goal mouth
     const gx = scorer === 'A' ? 1 - a.goalInset : a.goalInset;
-    this.fluid.splatRadial(gx, 0.5, 0.3, scorer === 'A' ? -220 : 220);
-    this.splatTealDye(gx, 0.5, 0.3, 80);
+    this.fluid.splatRadial(gx, 0.5, 0.35, scorer === 'A' ? -260 : 260);
+    this.splatTealDye(gx, 0.5, 0.3, 90);
+    this.shockX = gx;
+    this.shockY = 0.5;
+    this.shockProgress = 0;
+    this.shockStr = 1;
+    this.shakeMag = 0.9;
   }
 
   private injectBallWake() {
@@ -394,6 +462,87 @@ export class TideGame {
     const y = 0.5 + Math.sin(a) * 0.4;
     this.fluid.splatVelocity(x, y, -Math.cos(a) * 60, -Math.sin(a) * 60, 60);
     this.splatTealDye(x, y, 0.14, 60);
+  }
+
+  /** ball is physical vs the player markers: it bounces + takes their momentum. */
+  private collideBallWithPlayers() {
+    const rest = config.ball.restitution;
+    const pr = config.players.radius;
+    for (const p of this.players) {
+      if (!p.active) continue;
+      const min = pr + this.ball.radius;
+      let dx = this.ball.pos.x - p.pos.x;
+      let dy = this.ball.pos.y - p.pos.y;
+      let d = Math.hypot(dx, dy);
+      if (d >= min) continue;
+      if (d < 1e-5) {
+        dx = 1;
+        dy = 0;
+        d = 1;
+      }
+      const nx = dx / d;
+      const ny = dy / d;
+      this.ball.pos.x = p.pos.x + nx * min;
+      this.ball.pos.y = p.pos.y + ny * min;
+      const vn = (this.ball.vel.x - p.vel.x) * nx + (this.ball.vel.y - p.vel.y) * ny;
+      if (vn < 0) {
+        this.ball.vel.x -= (1 + rest) * vn * nx;
+        this.ball.vel.y -= (1 + rest) * vn * ny;
+      }
+      // moving the marker into the ball shoves it
+      this.ball.vel.x += p.vel.x * 0.6;
+      this.ball.vel.y += p.vel.y * 0.6;
+      this.shakeMag = Math.max(this.shakeMag, 0.15);
+    }
+  }
+
+  private spawnShards(x: number, y: number) {
+    this.shards = [];
+    for (let i = 0; i < SHARD_COUNT; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.3 + Math.random() * 0.7;
+      this.shards.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: 0.012 + Math.random() * 0.013 });
+    }
+  }
+
+  /** shards ride the water and are pulled toward a nearby player marker (drag). */
+  private updateShards(dt: number) {
+    const tmp = this.scratchVec;
+    for (const s of this.shards) {
+      this.fluid.coarse.sample(s.x, s.y, tmp);
+      const wvx = tmp.x * FIELD_TO_WORLD;
+      const wvy = tmp.y * FIELD_TO_WORLD;
+      s.vx += (wvx - s.vx) * 0.14;
+      s.vy += (wvy - s.vy) * 0.14;
+      for (const p of this.players) {
+        if (!p.active) continue;
+        const dx = p.pos.x - s.x;
+        const dy = p.pos.y - s.y;
+        const d = Math.hypot(dx, dy);
+        const R = 0.2;
+        if (d < R && d > 1e-4) {
+          const f = (1 - d / R) * 2.4 * dt;
+          s.vx += (dx / d) * f;
+          s.vy += (dy / d) * f;
+        }
+      }
+      s.vx *= 1 - 0.9 * dt;
+      s.vy *= 1 - 0.9 * dt;
+      const sp = Math.hypot(s.vx, s.vy);
+      if (sp > 1.4) {
+        s.vx *= 1.4 / sp;
+        s.vy *= 1.4 / sp;
+      }
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      const r = s.size;
+      if (s.x < r) { s.x = r; s.vx = Math.abs(s.vx) * 0.5; }
+      else if (s.x > 1 - r) { s.x = 1 - r; s.vx = -Math.abs(s.vx) * 0.5; }
+      if (s.y < r) { s.y = r; s.vy = Math.abs(s.vy) * 0.5; }
+      else if (s.y > 1 - r) { s.y = 1 - r; s.vy = -Math.abs(s.vy) * 0.5; }
+      // glowing trail
+      this.splatTealDye(s.x, s.y, 0.04, s.size * 90);
+    }
   }
 
   private handleMouse() {
@@ -435,9 +584,22 @@ export class TideGame {
     this.setColor(p, 'cTeamA', 'gold');
     this.setColor(p, 'cTeamB', 'crimson');
 
-    // ball
+    // ball (hidden during the goal shatter)
     gl.uniform2f(p.uniforms.uBallPos, this.ball.pos.x, this.ball.pos.y);
-    gl.uniform1f(p.uniforms.uBallRadius, this.ball.radius);
+    gl.uniform1f(p.uniforms.uBallRadius, this.match.state === 'goal' ? 0 : this.ball.radius);
+
+    // shatter shards
+    const n = Math.min(this.shards.length, 20);
+    for (let i = 0; i < n; i++) {
+      this.uShardPos[i * 2] = this.shards[i].x;
+      this.uShardPos[i * 2 + 1] = this.shards[i].y;
+      this.uShardSize[i] = this.shards[i].size;
+    }
+    gl.uniform1i(p.uniforms.uShardCount, n);
+    if (n > 0) {
+      gl.uniform2fv(p.uniforms.uShardPos, this.uShardPos);
+      gl.uniform1fv(p.uniforms.uShardSize, this.uShardSize);
+    }
 
     // players
     for (let i = 0; i < 2; i++) {
@@ -468,7 +630,21 @@ export class TideGame {
     gl.uniform1f(p.uniforms.uEdgeGlow, this.edgeGlow);
     gl.uniform1f(p.uniforms.uBeat, this.beat);
 
-    this.blitter.blit(null);
+    // render the water into the scene target, then post-process to screen
+    this.blitter.blit(this.post.scene);
+    const shockActive = this.shockProgress < 1;
+    this.post.render({
+      shakeX: (Math.random() - 0.5) * this.shakeMag * 0.02,
+      shakeY: (Math.random() - 0.5) * this.shakeMag * 0.02,
+      bloom: config.render.bloom,
+      ca: 0.3 + this.edgeGlow * 0.9 + (shockActive ? 0.6 : 0),
+      grain: 0.035,
+      time,
+      shockX: this.shockX,
+      shockY: this.shockY,
+      shockProgress: shockActive ? this.shockProgress : 2,
+      shockStr: this.shockStr,
+    });
   }
 
   private renderDebug() {
@@ -527,6 +703,7 @@ export class TideGame {
       grade: this.gradeFlash > 0 ? this.lastGrade : 'none',
       gradeSlot: this.gradeFlash > 0 ? this.gradeSlot : null,
       trackTitle: this.music.title(),
+      countdown: this.countdown,
     });
   }
 

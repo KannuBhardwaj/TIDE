@@ -282,6 +282,10 @@ uniform float uGoalFlashB;
 uniform float uEdgeGlow;   // 0..1 intensity
 uniform float uBeat;       // 0..1 beat pulse
 uniform vec3 uEdgeColor;   // rose-gold accent
+// goal shatter shards
+uniform vec2 uShardPos[20];
+uniform float uShardSize[20];
+uniform int uShardCount;
 out vec4 frag;
 
 // cheap value-noise for subtle floor shimmer
@@ -381,6 +385,17 @@ void main() {
   color += cPearl * max(rim, 0.0) * 0.5;
   color += cTeal * halo * (0.3 + 0.4 * d);
 
+  // --- goal shatter shards (pearl shards you drag around) ---
+  for (int i = 0; i < 20; i++) {
+    if (i >= uShardCount) break;
+    vec2 sp = uvToP(uShardPos[i]);
+    float sd = length(p - sp);
+    float sr = uShardSize[i] * 2.0;
+    float core = smoothstep(sr, sr * 0.4, sd);
+    color = mix(color, cPearl, core);
+    color += mix(cPearl, cTeal, 0.3) * exp(-sd / (sr * 1.6)) * 0.5;
+  }
+
   // --- vignette + subtle tone ---
   float vig = smoothstep(1.7, 0.4, r);
   color *= 0.35 + 0.65 * vig;
@@ -396,6 +411,91 @@ void main() {
   color *= 1.0 + 0.025 * uBeat;
 
   frag = vec4(color, 1.0);
+}`;
+
+/** bloom bright-pass: keep energy above a threshold. */
+export const THRESHOLD_FRAG = `${HEADER}
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform float uThreshold;
+out vec4 frag;
+void main() {
+  vec3 c = texture(uTex, vUv).rgb;
+  float b = max(max(c.r, c.g), c.b);
+  float k = max(0.0, b - uThreshold) / max(b, 1e-4);
+  frag = vec4(c * k, 1.0);
+}`;
+
+/** separable 5-tap gaussian blur (uDir is the texel-scaled direction). */
+export const BLUR_FRAG = `${HEADER}
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uDir;
+out vec4 frag;
+void main() {
+  vec3 s = texture(uTex, vUv).rgb * 0.227;
+  s += texture(uTex, vUv + uDir * 1.3843).rgb * 0.316;
+  s += texture(uTex, vUv - uDir * 1.3843).rgb * 0.316;
+  s += texture(uTex, vUv + uDir * 3.2307).rgb * 0.070;
+  s += texture(uTex, vUv - uDir * 3.2307).rgb * 0.070;
+  frag = vec4(s, 1.0);
+}`;
+
+/**
+ * Final composite: scene + bloom, with an expanding goal shockwave (UV ring
+ * distortion + flash), chromatic aberration (boosted on big moments), camera
+ * shake, film grain and a gentle vignette.
+ */
+export const COMPOSITE_FRAG = `${HEADER}
+in vec2 vUv;
+uniform sampler2D uScene;
+uniform sampler2D uBloom;
+uniform vec2 uShake;
+uniform float uBloomStr;
+uniform float uCA;
+uniform float uGrain;
+uniform float uTime;
+uniform float aspectRatio;
+uniform vec2 uShockCenter;
+uniform float uShockProgress; // 0..1
+uniform float uShockStr;
+out vec4 frag;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+
+void main() {
+  vec2 uv = vUv + uShake;
+
+  // shockwave ring
+  vec2 d = uv - uShockCenter;
+  d.x *= aspectRatio;
+  float dist = length(d);
+  float ringR = uShockProgress * 1.5;
+  float ring = smoothstep(0.08, 0.0, abs(dist - ringR)) * uShockStr * (1.0 - uShockProgress);
+  uv += normalize(d + 1e-5) * ring * 0.03 / vec2(aspectRatio, 1.0);
+
+  // chromatic aberration (toward edges), stronger during big moments + ring
+  float ca = uCA + ring * 0.6;
+  vec2 dir = uv - 0.5;
+  vec3 col;
+  col.r = texture(uScene, uv + dir * ca * 0.006).r;
+  col.g = texture(uScene, uv).g;
+  col.b = texture(uScene, uv - dir * ca * 0.006).b;
+
+  // bloom
+  col += texture(uBloom, uv).rgb * uBloomStr;
+  // ring flash (warm)
+  col += vec3(1.0, 0.92, 0.82) * ring * 0.7;
+
+  // grain
+  float g = (hash(vUv * vec2(1920.0, 1080.0) + uTime) * 2.0 - 1.0) * uGrain;
+  col += g;
+
+  // gentle extra vignette
+  float r = length((vUv - 0.5) * vec2(aspectRatio, 1.0));
+  col *= smoothstep(1.25, 0.3, r) * 0.25 + 0.75;
+
+  frag = vec4(col, 1.0);
 }`;
 
 /** Debug view: velocity (RG), pressure, dye, or raw. mode via uniform. */

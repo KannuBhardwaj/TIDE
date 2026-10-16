@@ -5,11 +5,23 @@ import { ArenaScreen } from './ArenaScreen';
 import { HostConnection } from '../net/host';
 import { SimPhone } from '../dev/simPhone';
 import { MusicPlayer } from '../audio/player';
+import { SfxEngine } from '../audio/sfx';
 import { makeRoomCode } from './qr';
 import type { Slot } from '../net/protocol';
 
 type Screen = 'intro' | 'lobby' | 'play';
-const DEFAULT_TRACK = 'surge';
+const DEFAULT_TRACK = 'rising_tide';
+
+const NOTE_HZ: Record<string, number> = {
+  C: 65.41, 'C#': 69.3, D: 73.42, 'D#': 77.78, E: 82.41, F: 87.31,
+  'F#': 92.5, G: 98.0, 'G#': 103.83, A: 110.0, 'A#': 116.54, B: 123.47,
+};
+function keyRoot(key?: string): number {
+  if (!key) return 110;
+  const m = key.trim().match(/^([A-Ga-g])(#?)/);
+  if (!m) return 110;
+  return NOTE_HZ[m[1].toUpperCase() + m[2]] ?? 110;
+}
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('intro');
@@ -20,6 +32,7 @@ export function App() {
   const simRef = useRef<[SimPhone | null, SimPhone | null]>([null, null]);
   const audioRef = useRef<AudioContext | null>(null);
   const musicRef = useRef<MusicPlayer | null>(null);
+  const sfxRef = useRef<SfxEngine | null>(null);
   const [sims, setSims] = useState<[boolean, boolean]>([false, false]);
 
   function ensureHost(): HostConnection {
@@ -34,9 +47,15 @@ export function App() {
     // user gesture: unlock audio + start loading the track
     if (!audioRef.current) audioRef.current = new AudioContext();
     audioRef.current.resume();
+    if (!sfxRef.current) sfxRef.current = new SfxEngine(audioRef.current);
     if (!musicRef.current) {
-      musicRef.current = new MusicPlayer(audioRef.current);
-      musicRef.current.load(DEFAULT_TRACK).catch((e) => console.warn('track load failed', e));
+      const music = new MusicPlayer(audioRef.current);
+      musicRef.current = music;
+      sfxRef.current.onDuck = (a, s) => music.duck(a, s);
+      music
+        .load(DEFAULT_TRACK)
+        .then(() => sfxRef.current?.setKey(keyRoot(music.track?.meta.key)))
+        .catch((e) => console.warn('track load failed', e));
     }
     ensureHost();
     setScreen('lobby');
@@ -72,5 +91,11 @@ export function App() {
         onToggleSim={toggleSim}
       />
     );
-  return <ArenaScreen host={hostRef.current ?? undefined} music={musicRef.current ?? undefined} />;
+  return (
+    <ArenaScreen
+      host={hostRef.current ?? undefined}
+      music={musicRef.current ?? undefined}
+      sfx={sfxRef.current ?? undefined}
+    />
+  );
 }

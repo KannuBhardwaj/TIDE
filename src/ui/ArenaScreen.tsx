@@ -4,8 +4,18 @@ import { TuningPanel } from '../dev/TuningPanel';
 import { Hud } from './Hud';
 import type { HostConnection } from '../net/host';
 import type { MusicPlayer } from '../audio/player';
+import type { SfxEngine } from '../audio/sfx';
+import { config } from '../game/config';
 
-export function ArenaScreen({ host, music }: { host?: HostConnection; music?: MusicPlayer }) {
+export function ArenaScreen({
+  host,
+  music,
+  sfx,
+}: {
+  host?: HostConnection;
+  music?: MusicPlayer;
+  sfx?: SfxEngine;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<TideGame | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
@@ -16,6 +26,7 @@ export function ArenaScreen({ host, music }: { host?: HostConnection; music?: Mu
     if (!canvas) return;
     let game: TideGame | null = null;
     let bridgeRaf = 0;
+    let audioRaf = 0;
     try {
       game = new TideGame(canvas);
       gameRef.current = game;
@@ -24,6 +35,44 @@ export function ArenaScreen({ host, music }: { host?: HostConnection; music?: Mu
       if (music) {
         game.setMusic(music);
         music.onEnded = () => game?.finishByTrack();
+      }
+
+      // ---- SFX wiring ----
+      if (sfx) {
+        const g = game;
+        g.onPush = (_slot, x, power) => sfx.push(x, power);
+        g.onBallHit = (x, strength, kind) => {
+          const s = Math.min(strength * 1.2, 1.8);
+          if (kind === 'wall') sfx.ballHit(x, s);
+          else sfx.splash(x, s);
+        };
+        const prevGoal = g.onGoal;
+        g.onGoal = (team) => {
+          prevGoal?.(team);
+          sfx.goal(team);
+          music?.underwater(true);
+          setTimeout(() => music?.underwater(false), config.match.goalFreezeSec * 1000);
+        };
+        // continuous voices (wall hum / pinch / build riser)
+        const audioTick = () => {
+          const a = g.audioState();
+          for (const slot of [0, 1] as const) {
+            const pl = a.players[slot];
+            const wk = `wall${slot}`;
+            if (pl.active && pl.wall) {
+              sfx.startWall(wk, pl.x);
+              sfx.updateVoice(wk, { x: pl.x, peak: a.peak ? 1 : a.glow });
+            } else sfx.stop(wk);
+            const pk = `pinch${slot}`;
+            if (pl.active && pl.pinch) {
+              sfx.startPinch(pk, pl.x);
+              sfx.updateVoice(pk, { x: pl.x });
+            } else sfx.stop(pk);
+          }
+          sfx.setRiser(a.peak ? 0 : a.glow);
+          audioRaf = requestAnimationFrame(audioTick);
+        };
+        audioRaf = requestAnimationFrame(audioTick);
       }
 
       let last = 0;
@@ -37,11 +86,15 @@ export function ArenaScreen({ host, music }: { host?: HostConnection; music?: Mu
 
       if (host) {
         const g = game;
-        g.onGoal = () => {
+        const prevGoalH = g.onGoal;
+        g.onGoal = (team) => {
+          prevGoalH?.(team);
           for (const slot of [0, 1] as const)
             if (host.slots[slot].connected) host.sendHaptic(slot, [40, 40, 140]);
         };
-        g.onPush = (slot) => {
+        const prevPushH = g.onPush;
+        g.onPush = (slot, x, power) => {
+          prevPushH?.(slot, x, power);
           if (host.slots[slot].connected && host.slots[slot].haptics) host.sendHaptic(slot, [25]);
         };
         let fbLast = 0;
@@ -69,10 +122,12 @@ export function ArenaScreen({ host, music }: { host?: HostConnection; music?: Mu
     }
     return () => {
       cancelAnimationFrame(bridgeRaf);
+      cancelAnimationFrame(audioRaf);
+      sfx?.stopAll();
       game?.dispose();
       gameRef.current = null;
     };
-  }, [host, music]);
+  }, [host, music, sfx]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">

@@ -16,6 +16,7 @@ export interface MusicRuntime {
   peakActive(): boolean;
   accent(): string | undefined;
   title(): string | undefined;
+  level(): number;
 }
 
 export class MusicPlayer implements MusicRuntime {
@@ -26,6 +27,10 @@ export class MusicPlayer implements MusicRuntime {
 
   private ctx: AudioContext;
   private gain: GainNode;
+  private lp: BiquadFilterNode;
+  private analyser: AnalyserNode;
+  private freq: Uint8Array<ArrayBuffer>;
+  private lvl = 0;
   private buffer: AudioBuffer | null = null;
   private source: AudioBufferSourceNode | null = null;
   private startAt = 0; // ctx time when playback began
@@ -34,7 +39,33 @@ export class MusicPlayer implements MusicRuntime {
     this.ctx = ctx;
     this.gain = ctx.createGain();
     this.gain.gain.value = 0.8;
-    this.gain.connect(ctx.destination);
+    this.lp = ctx.createBiquadFilter();
+    this.lp.type = 'lowpass';
+    this.lp.frequency.value = 20000;
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.freq = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
+    this.gain.connect(this.lp);
+    this.lp.connect(this.analyser); // tap for live reactivity
+    this.lp.connect(ctx.destination);
+  }
+
+  /** live low-mid energy of the actual audio, 0..1 (smoothed). */
+  level(): number {
+    if (!this.playing) return 0;
+    this.analyser.getByteFrequencyData(this.freq);
+    let s = 0;
+    const bins = Math.min(40, this.freq.length);
+    for (let i = 0; i < bins; i++) s += this.freq[i];
+    const v = s / (bins * 255);
+    this.lvl += (v - this.lvl) * 0.35;
+    return Math.min(1, this.lvl * 1.4);
+  }
+
+  /** "underwater" low-pass during goal slow-mo. */
+  underwater(on: boolean) {
+    const now = this.ctx.currentTime;
+    this.lp.frequency.setTargetAtTime(on ? 480 : 20000, now, 0.08);
   }
 
   async load(id: string) {
@@ -138,4 +169,5 @@ export const SILENT_MUSIC: MusicRuntime = {
   peakActive: () => false,
   accent: () => undefined,
   title: () => undefined,
+  level: () => 0,
 };

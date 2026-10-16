@@ -31,6 +31,9 @@ export class Ball {
   stalledTime = 0;
   /** set true on the frame a stalemate tide pulse should fire. */
   tidePulse = false;
+  /** collision impulse this frame (0 = none); kind distinguishes wall vs boundary. */
+  hitStrength = 0;
+  hitKind: 'wall' | 'bound' | null = null;
 
   private water: Vec2 = { x: 0, y: 0 };
 
@@ -95,6 +98,8 @@ export class Ball {
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
 
+    this.hitStrength = 0;
+    this.hitKind = null;
     this.collideBounds(c.restitution);
     for (const o of obstacles) this.collideCircle(o, c.restitution);
 
@@ -135,22 +140,34 @@ export class Ball {
     if (vn < 0) {
       this.vel.x -= (1 + restitution) * vn * nx;
       this.vel.y -= (1 + restitution) * vn * ny;
+      this.recordHit(-vn, 'wall');
+    }
+  }
+
+  private recordHit(mag: number, kind: 'wall' | 'bound') {
+    if (mag > this.hitStrength) {
+      this.hitStrength = mag;
+      this.hitKind = kind;
     }
   }
 
   private collideBounds(restitution: number) {
     const r = this.radius;
     if (this.pos.x < r) {
+      this.recordHit(Math.abs(this.vel.x), 'bound');
       this.pos.x = r;
       this.vel.x = Math.abs(this.vel.x) * restitution;
     } else if (this.pos.x > 1 - r) {
+      this.recordHit(Math.abs(this.vel.x), 'bound');
       this.pos.x = 1 - r;
       this.vel.x = -Math.abs(this.vel.x) * restitution;
     }
     if (this.pos.y < r) {
+      this.recordHit(Math.abs(this.vel.y), 'bound');
       this.pos.y = r;
       this.vel.y = Math.abs(this.vel.y) * restitution;
     } else if (this.pos.y > 1 - r) {
+      this.recordHit(Math.abs(this.vel.y), 'bound');
       this.pos.y = 1 - r;
       this.vel.y = -Math.abs(this.vel.y) * restitution;
     }

@@ -1,0 +1,6 @@
+{
+  "peaks": [
+    { "buildStart": 15, "peakStart": 30, "peakEnd": 38, "release": 46 },
+    { "buildStart": 75, "peakStart": 90, "peakEnd": 105, "release": 115 }
+  ]
+}

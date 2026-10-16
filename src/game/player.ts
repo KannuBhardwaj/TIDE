@@ -37,6 +37,7 @@ export class Player {
   energy = 1;
   active = true;
   wallActive = false;
+  pinchActive = false;
   pushedThisFrame = false;
   /** effective wall radius (uv) this frame — 0 when no wall, scales at peak. */
   wallRadiusEff = 0;
@@ -64,6 +65,7 @@ export class Player {
     this.pushedThisFrame = false;
     if (!this.active) {
       this.wallActive = false;
+      this.pinchActive = false;
       this.wallRadiusEff = 0;
       return;
     }
@@ -104,9 +106,11 @@ export class Player {
     this.wasPush = input.push;
 
     // PINCH (hold, drains) — pull strength scales with crescendo
+    this.pinchActive = false;
     if (input.pinch && this.energy > 0) {
       fluid.splatRadial(this.pos.x, this.pos.y, ab.pinchRadius, -ab.pinchForce * power);
       this.energy -= ab.pinchDrain * dt;
+      this.pinchActive = true;
       draining = true;
     }
 

@@ -109,18 +109,31 @@ export function Hud({ stats }: { stats: GameStats | null }) {
         <span style={{ color: crimson }}>CRIMSON</span> Arrows · / push · . pinch · , wall
       </div>
 
-      {/* goal flash */}
+      {/* goal shatter + countdown */}
       {state === 'goal' && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div
-            className="animate-pulse font-display text-7xl font-light tracking-[0.1em]"
-            style={{
-              color: stats.lastScorer === 'A' ? gold : stats.lastScorer === 'B' ? crimson : '#EAF6F2',
-              textShadow: `0 0 50px ${stats.lastScorer === 'A' ? gold : crimson}88`,
-            }}
-          >
-            GOAL
-          </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          {stats.countdown > 0 ? (
+            <div
+              key={stats.countdown}
+              className="font-display text-[140px] font-light leading-none"
+              style={{ color: '#FFC9A3', textShadow: '0 0 60px #FFC9A3aa' }}
+            >
+              {stats.countdown}
+            </div>
+          ) : (
+            <>
+              <div
+                className="font-display text-7xl font-light tracking-[0.1em]"
+                style={{
+                  color: stats.lastScorer === 'A' ? gold : stats.lastScorer === 'B' ? crimson : '#EAF6F2',
+                  textShadow: `0 0 50px ${stats.lastScorer === 'A' ? gold : crimson}88`,
+                }}
+              >
+                GOAL
+              </div>
+              <div className="label mt-4 text-pearl/60">drag the shards with your joystick</div>
+            </>
+          )}
         </div>
       )}
 
