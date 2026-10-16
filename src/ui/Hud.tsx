@@ -123,7 +123,7 @@ export function Hud({ stats }: { stats: GameStats | null }) {
           ) : (
             <>
               <div
-                className="font-display text-7xl font-light tracking-[0.1em]"
+                className="font-display text-6xl font-light tracking-[0.1em]"
                 style={{
                   color: stats.lastScorer === 'A' ? gold : stats.lastScorer === 'B' ? crimson : '#EAF6F2',
                   textShadow: `0 0 50px ${stats.lastScorer === 'A' ? gold : crimson}88`,
@@ -131,7 +131,16 @@ export function Hud({ stats }: { stats: GameStats | null }) {
               >
                 GOAL
               </div>
-              <div className="label mt-4 text-pearl/60">drag the shards with your joystick</div>
+              <div className="label mt-3 text-pearl/60">drag the shards with your joystick</div>
+              {stats.shatterCountdown > 0 && (
+                <div
+                  key={stats.shatterCountdown}
+                  className="mt-4 font-mono text-5xl font-bold tabular-nums"
+                  style={{ color: '#4FE3C1', textShadow: '0 0 30px #4FE3C1aa' }}
+                >
+                  {stats.shatterCountdown}
+                </div>
+              )}
             </>
           )}
         </div>

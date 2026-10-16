@@ -46,15 +46,26 @@ export interface GameStats {
   gradeSlot: 0 | 1 | null;
   trackTitle?: string;
   countdown: number; // 0 = none, else seconds left before next kickoff
+  shatterCountdown: number; // 0 = none, else seconds left in the shard-drag phase
+  quality: number; // governor tier (0 = highest)
 }
 
 const START_A = { x: 0.25, y: 0.5 };
 const START_B = { x: 0.75, y: 0.5 };
 
 // goal shatter minigame
-const SHATTER_SEC = 6;
-const COUNTDOWN_SEC = 3;
+const SHATTER_SEC = 5; // visible shard-drag phase
+const COUNTDOWN_SEC = 3; // kickoff countdown
 const SHARD_COUNT = 18;
+const SHARD_GRAB_R = 0.16; // within this, a marker directly carries shards
+
+// quality governor tiers (render scale + pressure-solve iterations)
+const QUALITY = [
+  { scale: 1.0, iters: 24 },
+  { scale: 0.82, iters: 18 },
+  { scale: 0.68, iters: 14 },
+  { scale: 0.55, iters: 10 },
+];
 interface Shard {
   x: number;
   y: number;
@@ -86,6 +97,8 @@ export class TideGame {
 
   private debugMode: DebugMode = 'off';
   private fpsEMA = 60;
+  private qualityTier = 0;
+  private govTimer = 0;
 
   // goal moment / camera
   private flashA = 0;
@@ -99,6 +112,7 @@ export class TideGame {
   private shards: Shard[] = [];
   private goalElapsed = 0;
   private countdown = 0;
+  private shatterCountdown = 0;
   private uShardPos = new Float32Array(40);
   private uShardSize = new Float32Array(20);
   private scratchVec = { x: 0, y: 0 };
@@ -286,6 +300,12 @@ export class TideGame {
     };
   }
 
+  private applyQuality() {
+    const q = QUALITY[this.qualityTier];
+    this.post.setScale(q.scale);
+    config.sim.pressureIterations = q.iters;
+  }
+
   private registerGrade(slot: 0 | 1, label: GradeLabel) {
     if (label !== 'none') {
       this.lastGrade = label;
@@ -327,17 +347,39 @@ export class TideGame {
     this.lastT = now;
     this.fpsEMA += (1 / Math.max(dtReal, 1e-3) - this.fpsEMA) * 0.1;
 
+    // quality governor: hold >= 60 fps by trading render scale + solver cost.
+    // ignore abnormal (stall / tab-hidden) frames so we don't downgrade falsely.
+    if (dtReal < 0.045) {
+      this.govTimer += dtReal;
+      if (this.govTimer > 1.0) {
+        this.govTimer = 0;
+        if (this.fpsEMA < 58 && this.qualityTier < QUALITY.length - 1) {
+          this.qualityTier++;
+          this.applyQuality();
+        } else if (this.fpsEMA > 75 && this.qualityTier > 0) {
+          this.qualityTier--;
+          this.applyQuality();
+        }
+      }
+    }
+
     this.handleMouse();
 
-    // goal shatter sequence: shatter (drag shards) -> countdown -> reset
+    // goal shatter sequence: 5s drag (visible countdown) -> 3s kickoff countdown -> reset
     if (this.match.state === 'goal') {
       this.goalElapsed += dtReal;
       const total = SHATTER_SEC + COUNTDOWN_SEC;
-      this.countdown = this.goalElapsed < SHATTER_SEC ? 0 : Math.max(1, Math.ceil(total - this.goalElapsed));
-      if (this.goalElapsed >= total) {
+      if (this.goalElapsed < SHATTER_SEC) {
+        this.shatterCountdown = Math.max(1, Math.ceil(SHATTER_SEC - this.goalElapsed));
+        this.countdown = 0;
+      } else if (this.goalElapsed < total) {
+        this.shatterCountdown = 0;
+        this.countdown = Math.max(1, Math.ceil(total - this.goalElapsed));
+      } else {
         this.resetPositions();
         this.shards.length = 0;
         this.countdown = 0;
+        this.shatterCountdown = 0;
         this.match.resume();
       }
     }
@@ -352,8 +394,8 @@ export class TideGame {
 
     // crescendo state (music is the master clock) + LIVE audio reactivity
     const live = this.music.level();
-    this.edgeGlow = this.devGlow ?? Math.max(this.music.glow(), live * 0.85);
-    this.beat = Math.min(1, this.music.beatPulse() * 0.45 + live * 0.95);
+    this.edgeGlow = this.devGlow ?? Math.max(this.music.glow() * 0.85, live * 0.5);
+    this.beat = Math.min(1, this.music.beatPulse() * 0.45 + live * 0.9);
     const powerInfo = this.music.abilityPower(0);
     const power = powerInfo.mult;
     this.power = power;
@@ -505,25 +547,49 @@ export class TideGame {
     }
   }
 
-  /** shards ride the water and are pulled toward a nearby player marker (drag). */
+  /**
+   * Shards drift on the water loosely, but a marker DIRECTLY carries the shards
+   * near it (independent of the water push): within grab range a shard matches
+   * that marker's joystick motion and is sprung toward it, so each player steers
+   * their own cluster with the joystick.
+   */
   private updateShards(dt: number) {
     const tmp = this.scratchVec;
     for (const s of this.shards) {
-      this.fluid.coarse.sample(s.x, s.y, tmp);
-      const wvx = tmp.x * FIELD_TO_WORLD;
-      const wvy = tmp.y * FIELD_TO_WORLD;
-      s.vx += (wvx - s.vx) * 0.14;
-      s.vy += (wvy - s.vy) * 0.14;
+      // find the nearest active marker and whether it is grabbing this shard
+      let grabber: (typeof this.players)[number] | null = null;
+      let gdx = 0;
+      let gdy = 0;
+      let gd = Infinity;
       for (const p of this.players) {
         if (!p.active) continue;
         const dx = p.pos.x - s.x;
         const dy = p.pos.y - s.y;
         const d = Math.hypot(dx, dy);
-        const R = 0.2;
-        if (d < R && d > 1e-4) {
-          const f = (1 - d / R) * 2.4 * dt;
-          s.vx += (dx / d) * f;
-          s.vy += (dy / d) * f;
+        if (d < gd) {
+          gd = d;
+          grabber = p;
+          gdx = dx;
+          gdy = dy;
+        }
+      }
+
+      if (grabber && gd < SHARD_GRAB_R) {
+        // DIRECT control: match the marker's motion + spring to keep clustered
+        s.vx += (grabber.vel.x - s.vx) * 0.5;
+        s.vy += (grabber.vel.y - s.vy) * 0.5;
+        const spring = 7 * dt;
+        s.vx += gdx * spring;
+        s.vy += gdy * spring;
+      } else {
+        // loose: drift on the water + a gentle pull toward the nearest marker
+        this.fluid.coarse.sample(s.x, s.y, tmp);
+        s.vx += (tmp.x * FIELD_TO_WORLD - s.vx) * 0.12;
+        s.vy += (tmp.y * FIELD_TO_WORLD - s.vy) * 0.12;
+        if (grabber && gd < 0.32 && gd > 1e-4) {
+          const f = (1 - gd / 0.32) * 1.4 * dt;
+          s.vx += (gdx / gd) * f;
+          s.vy += (gdy / gd) * f;
         }
       }
       s.vx *= 1 - 0.9 * dt;
@@ -704,6 +770,8 @@ export class TideGame {
       gradeSlot: this.gradeFlash > 0 ? this.gradeSlot : null,
       trackTitle: this.music.title(),
       countdown: this.countdown,
+      shatterCountdown: this.shatterCountdown,
+      quality: this.qualityTier,
     });
   }
 

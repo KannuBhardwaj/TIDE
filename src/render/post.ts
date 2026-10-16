@@ -32,6 +32,9 @@ export class Post {
   private pBlur: Program;
   private pComposite: Program;
   private bloomScale = 0.5;
+  private fullW = 1;
+  private fullH = 1;
+  private renderScale = 1;
 
   constructor(ctx: GLContext, blitter: Blitter, w: number, h: number) {
     this.ctx = ctx;
@@ -44,9 +47,25 @@ export class Post {
   }
 
   resize(w: number, h: number) {
+    this.fullW = w;
+    this.fullH = h;
+    this.aspect = w / h;
+    this.rebuild();
+  }
+
+  /** governor lever: render the scene (and bloom) at a fraction of full res. */
+  setScale(scale: number) {
+    const s = Math.max(0.4, Math.min(1, scale));
+    if (Math.abs(s - this.renderScale) < 0.01) return;
+    this.renderScale = s;
+    this.rebuild();
+  }
+
+  private rebuild() {
     const gl = this.gl;
     const { internalFormat, type } = this.ctx.rt;
-    this.aspect = w / h;
+    const w = Math.max(1, Math.floor(this.fullW * this.renderScale));
+    const h = Math.max(1, Math.floor(this.fullH * this.renderScale));
     const bw = Math.max(1, Math.floor(w * this.bloomScale));
     const bh = Math.max(1, Math.floor(h * this.bloomScale));
     this.scene = createFBO(gl, w, h, internalFormat, gl.RGBA, type, gl.LINEAR);

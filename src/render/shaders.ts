@@ -402,13 +402,13 @@ void main() {
   color = color / (color + vec3(0.9)); // reinhard-ish tonemap
   color = pow(color, vec3(0.9));
 
-  // --- crescendo edge glow (rose-gold -> white-hot), added on top so it
-  //     survives the vignette and blazes at the screen edges ---
-  float edge = smoothstep(0.55, 1.55, r);
-  vec3 glowC = mix(uEdgeColor, vec3(1.0), uEdgeGlow * 0.5);
-  color += glowC * edge * uEdgeGlow * (0.7 + 0.6 * uBeat);
+  // --- crescendo edge glow (rose-gold -> white-hot): confined to the outer
+  //     rim and kept subtle so it never washes over the play field ---
+  float edge = smoothstep(1.12, 1.62, r);
+  vec3 glowC = mix(uEdgeColor, vec3(1.0), uEdgeGlow * 0.35);
+  color += glowC * edge * uEdgeGlow * (0.38 + 0.22 * uBeat);
   // subtle beat breathing
-  color *= 1.0 + 0.025 * uBeat;
+  color *= 1.0 + 0.02 * uBeat;
 
   frag = vec4(color, 1.0);
 }`;

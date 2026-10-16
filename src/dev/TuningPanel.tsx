@@ -49,8 +49,8 @@ export function TuningPanel({ stats }: { stats: GameStats | null }) {
           </span>
         </span>
         <span>
-          <span className="text-pearl/40">ball </span>
-          {stats ? stats.ballSpeed.toFixed(2) : '—'}
+          <span className="text-pearl/40">q </span>
+          <span className="text-teal">{stats?.quality ?? 0}</span>
         </span>
         <span>
           <span className="text-pearl/40">dbg </span>
