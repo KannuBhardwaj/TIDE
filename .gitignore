@@ -1,0 +1,21 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+
+# editor / os
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# python tooling
+tools/analyze/.venv
+tools/analyze/__pycache__
+*.pyc
+
+# generated media (keep source tracks, ignore scratch renders)
+public/tracks/_scratch
