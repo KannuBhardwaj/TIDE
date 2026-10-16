@@ -87,6 +87,18 @@ export interface TideConfig {
     goalsToWin: number;
     goalFreezeSec: number; // pause after a goal before reset
   };
+  crescendo: {
+    /** ability power multiplier added at full intensity (1 -> 1+gain). */
+    intensityGain: number;
+    /** extra multiplier for a Perfect peak-timed activation (tightest). */
+    peakBonusMax: number;
+    /** seconds the edge glow ramps BEFORE the audio peak (lookahead). */
+    lookahead: number;
+    /** wall radius/strength multiplier at full peak power. */
+    wallPeakScale: number;
+    /** timing window (s) around peakStart that still earns partial credit. */
+    gradeWindow: number;
+  };
   render: {
     /** device-pixel-ratio cap (quality governor lowers this). */
     maxDpr: number;
@@ -150,6 +162,13 @@ export const config: TideConfig = {
   match: {
     goalsToWin: 5,
     goalFreezeSec: 1.4,
+  },
+  crescendo: {
+    intensityGain: 0.6,
+    peakBonusMax: 0.8,
+    lookahead: 0.6,
+    wallPeakScale: 0.7,
+    gradeWindow: 0.45,
   },
   render: {
     maxDpr: 2,

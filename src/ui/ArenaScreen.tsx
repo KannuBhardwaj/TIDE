@@ -3,8 +3,9 @@ import { TideGame, type GameStats } from '../game/loop';
 import { TuningPanel } from '../dev/TuningPanel';
 import { Hud } from './Hud';
 import type { HostConnection } from '../net/host';
+import type { MusicPlayer } from '../audio/player';
 
-export function ArenaScreen({ host }: { host?: HostConnection }) {
+export function ArenaScreen({ host, music }: { host?: HostConnection; music?: MusicPlayer }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<TideGame | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
@@ -19,6 +20,11 @@ export function ArenaScreen({ host }: { host?: HostConnection }) {
       game = new TideGame(canvas);
       gameRef.current = game;
       (window as unknown as { tide?: TideGame }).tide = game;
+
+      if (music) {
+        game.setMusic(music);
+        music.onEnded = () => game?.finishByTrack();
+      }
 
       let last = 0;
       game.onStats = (s) => {
@@ -47,7 +53,7 @@ export function ArenaScreen({ host }: { host?: HostConnection }) {
             if (connected) {
               g.setExternalInput(slot, host.getInput(slot));
               if (now - fbLast > 100) {
-                host.sendFeedback(slot, { ...g.playerFeedback(slot), peak: 0 });
+                host.sendFeedback(slot, { ...g.playerFeedback(slot), peak: g.currentGlow() });
               }
             }
           }
@@ -66,7 +72,7 @@ export function ArenaScreen({ host }: { host?: HostConnection }) {
       game?.dispose();
       gameRef.current = null;
     };
-  }, [host]);
+  }, [host, music]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">

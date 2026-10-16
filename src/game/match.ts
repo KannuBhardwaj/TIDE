@@ -40,6 +40,8 @@ export class Match {
   state: MatchState = 'playing';
   /** team of the most recent goal (for the goal-moment visuals). */
   lastScorer: Team | null = null;
+  /** final result once ended: winner, or 'draw'. */
+  result: Team | 'draw' | null = null;
 
   constructor(private goalsToWin: number) {}
 
@@ -50,11 +52,19 @@ export class Match {
     else this.scoreB++;
     this.lastScorer = team;
     if (this.winner) {
+      this.result = this.winner;
       this.state = 'ended';
       return true;
     }
     this.state = 'goal';
     return false;
+  }
+
+  /** end the match now (e.g. the track finished); leader wins, ties draw. */
+  finish() {
+    if (this.state === 'ended') return;
+    this.result = this.scoreA > this.scoreB ? 'A' : this.scoreB > this.scoreA ? 'B' : 'draw';
+    this.state = 'ended';
   }
 
   /** winner once someone reaches the target, else null. */
@@ -73,5 +83,6 @@ export class Match {
     this.scoreB = 0;
     this.state = 'playing';
     this.lastScorer = null;
+    this.result = null;
   }
 }

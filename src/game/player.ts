@@ -38,6 +38,8 @@ export class Player {
   active = true;
   wallActive = false;
   pushedThisFrame = false;
+  /** effective wall radius (uv) this frame — 0 when no wall, scales at peak. */
+  wallRadiusEff = 0;
 
   private pushCd = 0;
   private wasPush = false;
@@ -57,10 +59,12 @@ export class Player {
     this.wasPush = false;
   }
 
-  update(dt: number, input: PlayerInput, fluid: FluidSolver) {
+  /** `power` is the crescendo ability multiplier (1 at rest, higher at peaks). */
+  update(dt: number, input: PlayerInput, fluid: FluidSolver, power = 1) {
     this.pushedThisFrame = false;
     if (!this.active) {
       this.wallActive = false;
+      this.wallRadiusEff = 0;
       return;
     }
     const pc = config.players;
@@ -87,31 +91,34 @@ export class Player {
     // --- abilities ---
     let draining = false;
 
-    // PUSH (rising edge, cooldown + cost)
+    // PUSH (rising edge, cooldown + cost) — force & reach scale with crescendo
     this.pushCd = Math.max(0, this.pushCd - dt);
     if (input.push && !this.wasPush && this.pushCd <= 0 && this.energy >= ab.pushCost) {
-      fluid.splatRadial(this.pos.x, this.pos.y, ab.pushRadius, ab.pushForce);
-      this.splatTeamDye(fluid, 0.14, ab.pushRadius * 100);
+      const radius = ab.pushRadius * (1 + (power - 1) * 0.3);
+      fluid.splatRadial(this.pos.x, this.pos.y, radius, ab.pushForce * power);
+      this.splatTeamDye(fluid, 0.14, radius * 100);
       this.energy -= ab.pushCost;
       this.pushCd = ab.pushCooldown;
       this.pushedThisFrame = true;
     }
     this.wasPush = input.push;
 
-    // PINCH (hold, drains)
+    // PINCH (hold, drains) — pull strength scales with crescendo
     if (input.pinch && this.energy > 0) {
-      fluid.splatRadial(this.pos.x, this.pos.y, ab.pinchRadius, -ab.pinchForce);
+      fluid.splatRadial(this.pos.x, this.pos.y, ab.pinchRadius, -ab.pinchForce * power);
       this.energy -= ab.pinchDrain * dt;
       draining = true;
     }
 
-    // WALL (hold, drains faster; needs a minimum to (re)raise)
+    // WALL (hold, drains faster; needs a minimum to (re)raise) — taller/stronger at peak
     if (input.wall && (this.wallActive ? this.energy > 0 : this.energy >= ab.wallMinEnergy)) {
       this.wallActive = true;
+      this.wallRadiusEff = ab.wallRadius * (1 + (power - 1) * config.crescendo.wallPeakScale);
       this.energy -= ab.wallDrain * dt;
       draining = true;
     } else {
       this.wallActive = false;
+      this.wallRadiusEff = 0;
     }
 
     // regen only when idle

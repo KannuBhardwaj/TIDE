@@ -269,16 +269,19 @@ uniform vec3 cTeamA;
 uniform vec3 cTeamB;
 uniform vec2 uPlayerPos[2];
 uniform float uPlayerActive[2]; // 1 if in play
-uniform float uPlayerWall[2];   // 1 if wall raised
+uniform float uPlayerWall[2];   // wall radius (uv), 0 if no wall
 uniform float uPlayerEnergy[2];
 uniform float uPlayerRadius;
-uniform float uWallRadius;
 // goals
 uniform float uGoalInset;
 uniform float uGoalHalf;
 uniform float uPostRadius;
 uniform float uGoalFlashA;
 uniform float uGoalFlashB;
+// crescendo
+uniform float uEdgeGlow;   // 0..1 intensity
+uniform float uBeat;       // 0..1 beat pulse
+uniform vec3 uEdgeColor;   // rose-gold accent
 out vec4 frag;
 
 // cheap value-noise for subtle floor shimmer
@@ -349,13 +352,13 @@ void main() {
     if (uPlayerActive[i] < 0.5) continue;
     vec3 tc = i == 0 ? cTeamA : cTeamB;
     vec2 pc = uvToP(uPlayerPos[i]);
-    // wall barrier (translucent energy disc + fresnel rim)
-    if (uPlayerWall[i] > 0.5) {
-      float wr = uWallRadius * 2.0;
+    // wall barrier (translucent energy disc + fresnel rim); taller at peaks
+    if (uPlayerWall[i] > 0.001) {
+      float wr = uPlayerWall[i] * 2.0;
       float wf = discFill(p, pc, wr);
       float wrim = ringGlow(p, pc, wr);
-      color = mix(color, tc * 0.5, wf * 0.35);
-      color += tc * wrim * 0.8;
+      color = mix(color, tc * 0.5, wf * 0.4);
+      color += tc * wrim * (0.8 + 0.6 * uEdgeGlow);
     }
     // marker aura orb, pulsing with energy
     float mr = uPlayerRadius * 2.0;
@@ -383,6 +386,14 @@ void main() {
   color *= 0.35 + 0.65 * vig;
   color = color / (color + vec3(0.9)); // reinhard-ish tonemap
   color = pow(color, vec3(0.9));
+
+  // --- crescendo edge glow (rose-gold -> white-hot), added on top so it
+  //     survives the vignette and blazes at the screen edges ---
+  float edge = smoothstep(0.55, 1.55, r);
+  vec3 glowC = mix(uEdgeColor, vec3(1.0), uEdgeGlow * 0.5);
+  color += glowC * edge * uEdgeGlow * (0.7 + 0.6 * uBeat);
+  // subtle beat breathing
+  color *= 1.0 + 0.025 * uBeat;
 
   frag = vec4(color, 1.0);
 }`;

@@ -14,6 +14,9 @@ import { Obstacles, type Circle } from '../sim/obstacles';
 import { Player, NEUTRAL_INPUT, type PlayerInput, type Team } from './player';
 import { Match, detectGoal, type MatchState, type GoalGeom } from './match';
 import { readKeyboard, GAME_CODES } from './controllers';
+import { SILENT_MUSIC, type MusicRuntime } from '../audio/player';
+import { hexToRgb } from '../render/palette';
+import type { GradeLabel } from '../audio/grades';
 import { config } from './config';
 
 export type DebugMode = 'off' | 'velocity' | 'pressure' | 'dye' | 'curl' | 'obstacle';
@@ -32,8 +35,15 @@ export interface GameStats {
   score: { a: number; b: number };
   state: MatchState;
   winner: Team | null;
+  result: Team | 'draw' | null;
   lastScorer: Team | null;
   players: [PlayerStat, PlayerStat];
+  // crescendo
+  glow: number;
+  power: number;
+  grade: GradeLabel;
+  gradeSlot: 0 | 1 | null;
+  trackTitle?: string;
 }
 
 const START_A = { x: 0.25, y: 0.5 };
@@ -66,6 +76,17 @@ export class TideGame {
   private goalTimer = 0;
   private flashA = 0;
   private flashB = 0;
+
+  // music / crescendo
+  music: MusicRuntime = SILENT_MUSIC;
+  private edgeGlow = 0;
+  private beat = 0;
+  private power = 1;
+  private lastGrade: GradeLabel = 'none';
+  private gradeSlot: 0 | 1 | null = null;
+  private gradeFlash = 0;
+  /** dev override for the edge glow (capture/testing); null = use music. */
+  private devGlow: number | null = null;
 
   // input
   private pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, down: false };
@@ -205,6 +226,33 @@ export class TideGame {
     };
   }
 
+  setMusic(m: MusicRuntime) {
+    this.music = m;
+  }
+
+  /** dev-only: force the edge glow (capture tool); pass null to release. */
+  setDevGlow(v: number | null) {
+    this.devGlow = v;
+  }
+
+  /** end the match because the track finished (leader wins). */
+  finishByTrack() {
+    if (this.match.state !== 'ended') this.match.finish();
+  }
+
+  /** current crescendo edge-glow intensity (for phone feedback). */
+  currentGlow() {
+    return this.edgeGlow;
+  }
+
+  private registerGrade(slot: 0 | 1, label: GradeLabel) {
+    if (label !== 'none') {
+      this.lastGrade = label;
+      this.gradeSlot = slot;
+      this.gradeFlash = 1;
+    }
+  }
+
   /** dev-only: force a goal (used by the capture tool / manual testing). */
   devScore(team: Team) {
     if (this.match.state === 'ended') return;
@@ -255,12 +303,27 @@ export class TideGame {
     const kb = readKeyboard(this.codes);
     const inA = this.inputMode[0] === 'external' ? this.externalInputs[0] ?? NEUTRAL_INPUT : kb[0];
     const inB = this.inputMode[1] === 'external' ? this.externalInputs[1] ?? NEUTRAL_INPUT : kb[1];
+
+    // crescendo state (music is the master clock)
+    this.edgeGlow = this.devGlow ?? this.music.glow();
+    this.beat = this.music.beatPulse();
+    const powerInfo = this.music.abilityPower(0);
+    const power = powerInfo.mult;
+    this.power = power;
+    this.gradeFlash = Math.max(0, this.gradeFlash - dtReal * 1.5);
+
     while (this.acc >= step && steps < 5) {
       if (playing) {
-        this.players[0].update(step, inA, this.fluid);
-        this.players[1].update(step, inB, this.fluid);
-        if (this.players[0].pushedThisFrame) this.onPush?.(0);
-        if (this.players[1].pushedThisFrame) this.onPush?.(1);
+        this.players[0].update(step, inA, this.fluid, power);
+        this.players[1].update(step, inB, this.fluid, power);
+        if (this.players[0].pushedThisFrame) {
+          this.onPush?.(0);
+          this.registerGrade(0, powerInfo.label);
+        }
+        if (this.players[1].pushedThisFrame) {
+          this.onPush?.(1);
+          this.registerGrade(1, powerInfo.label);
+        }
         this.injectBallWake();
       }
       this.buildObstacles();
@@ -293,9 +356,9 @@ export class TideGame {
     list.push({ x: a.goalInset, y: 0.5 + h, r: a.postRadius });
     list.push({ x: 1 - a.goalInset, y: 0.5 - h, r: a.postRadius });
     list.push({ x: 1 - a.goalInset, y: 0.5 + h, r: a.postRadius });
-    // player walls
+    // player walls (effective radius grows at crescendo peaks)
     for (const p of this.players) {
-      if (p.active && p.wallActive) list.push({ x: p.pos.x, y: p.pos.y, r: config.abilities.wallRadius });
+      if (p.active && p.wallActive) list.push({ x: p.pos.x, y: p.pos.y, r: p.wallRadiusEff });
     }
     this.obstacles.circles = list;
     this.obstacles.build();
@@ -382,7 +445,7 @@ export class TideGame {
       this.uPos[i * 2] = pl.pos.x;
       this.uPos[i * 2 + 1] = pl.pos.y;
       this.uActive[i] = pl.active ? 1 : 0;
-      this.uWall[i] = pl.wallActive ? 1 : 0;
+      this.uWall[i] = pl.wallActive ? pl.wallRadiusEff : 0;
       this.uEnergy[i] = pl.energy;
     }
     gl.uniform2fv(p.uniforms.uPlayerPos, this.uPos);
@@ -390,7 +453,6 @@ export class TideGame {
     gl.uniform1fv(p.uniforms.uPlayerWall, this.uWall);
     gl.uniform1fv(p.uniforms.uPlayerEnergy, this.uEnergy);
     gl.uniform1f(p.uniforms.uPlayerRadius, config.players.radius);
-    gl.uniform1f(p.uniforms.uWallRadius, config.abilities.wallRadius);
 
     // goals
     gl.uniform1f(p.uniforms.uGoalInset, config.arena.goalInset);
@@ -398,6 +460,13 @@ export class TideGame {
     gl.uniform1f(p.uniforms.uPostRadius, config.arena.postRadius);
     gl.uniform1f(p.uniforms.uGoalFlashA, this.flashA);
     gl.uniform1f(p.uniforms.uGoalFlashB, this.flashB);
+
+    // crescendo edge glow (rose-gold accent, or the track's accent)
+    const accent = this.music.accent();
+    const [er, eg, eb] = accent ? hexToRgb(accent) : paletteRgb('roseGold');
+    gl.uniform3f(p.uniforms.uEdgeColor, er, eg, eb);
+    gl.uniform1f(p.uniforms.uEdgeGlow, this.edgeGlow);
+    gl.uniform1f(p.uniforms.uBeat, this.beat);
 
     this.blitter.blit(null);
   }
@@ -447,11 +516,17 @@ export class TideGame {
       score: { a: this.match.scoreA, b: this.match.scoreB },
       state: this.match.state,
       winner: this.match.winner,
+      result: this.match.result,
       lastScorer: this.match.lastScorer,
       players: [
         { energy: this.players[0].energy, wall: this.players[0].wallActive, active: this.players[0].active },
         { energy: this.players[1].energy, wall: this.players[1].wallActive, active: this.players[1].active },
       ],
+      glow: this.edgeGlow,
+      power: this.power,
+      grade: this.gradeFlash > 0 ? this.lastGrade : 'none',
+      gradeSlot: this.gradeFlash > 0 ? this.gradeSlot : null,
+      trackTitle: this.music.title(),
     });
   }
 

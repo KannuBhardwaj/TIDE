@@ -4,12 +4,12 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import './index.css';
 import { App } from './ui/App';
 import { PhoneController } from './phone/PhoneController';
+import { TrackInspector } from './dev/TrackInspector';
 
 const router = createBrowserRouter([
   { path: '/', element: <App /> },
   { path: '/play/:room', element: <PhoneController /> },
-  // track inspector lands here in M4
-  { path: '/dev/tracks', element: <App /> },
+  { path: '/dev/tracks', element: <TrackInspector /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
