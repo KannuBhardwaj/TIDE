@@ -40,7 +40,12 @@ export interface TideConfig {
     wakeForce: number;
     /** max speed clamp (world units / s). */
     maxSpeed: number;
-    /** seconds of near-stillness before the anti-stalemate tide pulse. */
+    /** water (world) speed below which the flow is ignored — the ball only
+     *  responds to meaningful currents, so it rests when the water is calm. */
+    waterDeadzone: number;
+    /** ball speed below which it snaps to rest when the water is also calm. */
+    restThreshold: number;
+    /** seconds of near-stillness (while water is active) before a tide pulse. */
     stalemateSeconds: number;
   };
   pointer: {
@@ -110,6 +115,8 @@ export const config: TideConfig = {
     restitution: 0.72,
     wakeForce: 14,
     maxSpeed: 1.1,
+    waterDeadzone: 0.03,
+    restThreshold: 0.02,
     stalemateSeconds: 4,
   },
   pointer: {

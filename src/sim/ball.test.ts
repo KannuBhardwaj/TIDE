@@ -44,11 +44,30 @@ describe('Ball physics', () => {
     }
   });
 
-  it('fires a tide pulse after the stalemate window of stillness', () => {
+  it('rests and never drifts in calm water', () => {
     const ball = new Ball(0.5, 0.5);
+    for (let i = 0; i < 60 * 3; i++) ball.update(1 / 60, still);
+    expect(ball.speed).toBe(0);
+    expect(ball.pos).toEqual({ x: 0.5, y: 0.5 });
+    expect(ball.tidePulse).toBe(false);
+  });
+
+  it('ignores tiny residual currents below the deadzone', () => {
+    const ball = new Ball(0.5, 0.5);
+    // water below the deadzone (0.03 world => 3 raw units) must not move it
+    const trickle = constant(2, 0);
+    for (let i = 0; i < 60 * 2; i++) ball.update(1 / 60, trickle);
+    expect(ball.pos.x).toBe(0.5);
+  });
+
+  it('fires a tide pulse when stuck despite active water', () => {
+    const ball = new Ball(0.5, 0.5);
+    // active water (>= deadzone) but weak enough that the ball creeps below the
+    // stall speed — i.e. effectively pinned — should eventually tide-pulse.
+    const weakActive = constant(3.3, 0);
     let pulses = 0;
     for (let i = 0; i < 60 * 5; i++) {
-      ball.update(1 / 60, still);
+      ball.update(1 / 60, weakActive);
       if (ball.tidePulse) pulses++;
     }
     expect(pulses).toBeGreaterThanOrEqual(1);

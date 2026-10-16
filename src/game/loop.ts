@@ -70,7 +70,6 @@ export class TideGame {
   // input
   private pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, down: false };
   private codes = new Set<string>();
-  private ambientT = 0;
 
   // scratch buffers for array uniforms
   private uPos = new Float32Array(4);
@@ -109,13 +108,14 @@ export class TideGame {
   }
 
   private seed() {
+    // seed only a little still dye for ambiance — no flow, so the ball rests
+    // until a player actually moves the water.
     const n = 6;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
       const x = 0.5 + Math.cos(a) * 0.26;
       const y = 0.5 + Math.sin(a) * 0.26;
-      this.splatTealDye(x, y, 0.2, 26);
-      this.fluid.splatVelocity(x, y, Math.cos(a) * -12, Math.sin(a) * -12, 24);
+      this.splatTealDye(x, y, 0.16, 26);
     }
   }
 
@@ -314,15 +314,6 @@ export class TideGame {
     }
     p.px = p.x;
     p.py = p.y;
-
-    this.ambientT += 0.016;
-    if (this.ambientT > 1.6) {
-      this.ambientT = 0;
-      const x = Math.random();
-      const y = Math.random();
-      const a = Math.random() * Math.PI * 2;
-      this.fluid.splatVelocity(x, y, Math.cos(a) * 10, Math.sin(a) * 10, 36);
-    }
   }
 
   private render(now: number) {

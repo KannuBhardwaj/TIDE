@@ -56,8 +56,15 @@ export class Ball {
     sampleWater(this.pos.x, this.pos.y, this.water);
 
     // world-space water velocity under the ball
-    const wvx = this.water.x * FIELD_TO_WORLD;
-    const wvy = this.water.y * FIELD_TO_WORLD;
+    let wvx = this.water.x * FIELD_TO_WORLD;
+    let wvy = this.water.y * FIELD_TO_WORLD;
+    const waterSpeed = Math.hypot(wvx, wvy);
+    const waterActive = waterSpeed >= c.waterDeadzone;
+    // ignore tiny residual currents so the ball only moves on real interaction
+    if (!waterActive) {
+      wvx = 0;
+      wvy = 0;
+    }
 
     // drag toward water velocity (heavier mass => slower response)
     const k = (c.drag * dt) / c.mass;
@@ -68,6 +75,13 @@ export class Ball {
     const damp = Math.max(0, 1 - c.damping * dt);
     this.vel.x *= damp;
     this.vel.y *= damp;
+
+    // static rest: when the water is calm and the ball is nearly stopped,
+    // snap it to a dead stop so it never drifts on its own.
+    if (!waterActive && this.speed < c.restThreshold) {
+      this.vel.x = 0;
+      this.vel.y = 0;
+    }
 
     // clamp speed
     const sp = this.speed;
@@ -84,9 +98,10 @@ export class Ball {
     this.collideBounds(c.restitution);
     for (const o of obstacles) this.collideCircle(o, c.restitution);
 
-    // anti-stalemate bookkeeping
+    // anti-stalemate: only when the ball is stuck *despite* active water
+    // (i.e. trapped/pinned) — an idle ball in calm water is left at rest.
     this.tidePulse = false;
-    if (this.speed < 0.03) {
+    if (waterActive && this.speed < 0.03) {
       this.stalledTime += dt;
       if (this.stalledTime >= c.stalemateSeconds) {
         this.tidePulse = true;
