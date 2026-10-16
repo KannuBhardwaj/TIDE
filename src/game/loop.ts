@@ -260,7 +260,6 @@ export class TideGame {
     this.setColor(this.pWater, 'cPearl', 'pearl');
     gl.uniform2f(this.pWater.uniforms.uBallPos, this.ball.pos.x, this.ball.pos.y);
     gl.uniform1f(this.pWater.uniforms.uBallRadius, this.ball.radius);
-    gl.uniform2f(this.pWater.uniforms.uBallVel, this.ball.vel.x, this.ball.vel.y);
     this.blitter.blit(null);
   }
 

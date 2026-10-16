@@ -84,11 +84,11 @@ export const config: TideConfig = {
   pointer: {
     splatRadius: 0.14,
     splatForce: 6000,
-    dyeAmount: 0.16,
+    dyeAmount: 0.11,
   },
   render: {
     maxDpr: 2,
-    glow: 1.0,
+    glow: 0.7,
     bloom: 0.7,
   },
 };

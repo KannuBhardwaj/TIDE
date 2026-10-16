@@ -201,7 +201,6 @@ uniform vec3 cRose;
 uniform vec3 cPearl;
 uniform vec2 uBallPos;
 uniform float uBallRadius;
-uniform vec2 uBallVel;
 out vec4 frag;
 
 // cheap value-noise for subtle floor shimmer
@@ -235,35 +234,23 @@ void main() {
   // stays aurora-teal rather than going fully mauve).
   vec3 lumin = mix(cTeal, cRose, flow * 0.6);
   vec3 color = base;
-  color += lumin * d * (0.9 + 0.8 * glow);
-  // luminous core: dense dye blooms toward white-teal ("liquid light")
-  color += mix(cTeal, cPearl, 0.5) * smoothstep(0.45, 1.2, d) * (0.6 + 0.6 * glow);
-  // bright crest / foam hint where dye is dense & moving fast
-  color += cPearl * smoothstep(0.6, 1.1, d) * flow * 0.5;
+  color += lumin * d * (0.8 + 0.5 * glow);
+  // subtle luminous core only where dye is very dense (restrained)
+  color += mix(cTeal, cPearl, 0.4) * smoothstep(0.7, 1.3, d) * (0.25 * glow);
 
-  // --- the ball: pearl orb with rim + motion stretch ---
+  // --- the ball: a clean, rigid pearl orb (no deformation) ---
   vec2 bp = (uBallPos * 2.0 - 1.0);
   bp.x *= aspectRatio;
   vec2 bd = p - bp;
-  // stretch opposite velocity for a comet feel
-  vec2 vel = uBallVel;
-  vel.x *= aspectRatio;
-  float vl = length(vel);
-  if (vl > 0.0001) {
-    vec2 dir = vel / vl;
-    float along = dot(bd, dir);
-    bd -= dir * clamp(along, 0.0, vl * 0.25) * 0.6;
-  }
   float bdist = length(bd);
   float br = uBallRadius * aspectRatio;
-  float orb = smoothstep(br, br * 0.75, bdist);
-  float rim = smoothstep(br, br * 0.9, bdist) - smoothstep(br * 0.9, br * 0.55, bdist);
-  // glow halo
-  float halo = exp(-bdist / (br * 1.6)) * 0.5;
-  vec3 ballCol = mix(cPearl * 0.6, cPearl, orb);
+  float orb = smoothstep(br, br * 0.78, bdist);
+  float rim = smoothstep(br, br * 0.92, bdist) - smoothstep(br * 0.92, br * 0.6, bdist);
+  float halo = exp(-bdist / (br * 1.4)) * 0.28;
+  vec3 ballCol = mix(cPearl * 0.65, cPearl, orb);
   color = mix(color, ballCol, orb);
-  color += cPearl * max(rim, 0.0) * 0.8;
-  color += cTeal * halo * (0.4 + d);
+  color += cPearl * max(rim, 0.0) * 0.5;
+  color += cTeal * halo * (0.3 + 0.4 * d);
 
   // --- vignette + subtle tone ---
   float vig = smoothstep(1.7, 0.4, r);
