@@ -72,6 +72,8 @@ interface Shard {
   vx: number;
   vy: number;
   size: number;
+  angle: number; // formation slot around the carrying marker
+  formR: number; // formation radius (keeps shards spread, not glued)
 }
 
 export class TideGame {
@@ -543,53 +545,56 @@ export class TideGame {
     for (let i = 0; i < SHARD_COUNT; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 0.3 + Math.random() * 0.7;
-      this.shards.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: 0.012 + Math.random() * 0.013 });
+      this.shards.push({
+        x,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        size: 0.012 + Math.random() * 0.013,
+        angle: (i / SHARD_COUNT) * Math.PI * 2, // distinct slot so they stay spread
+        formR: 0.05 + Math.random() * 0.055,
+      });
     }
   }
 
   /**
-   * Shards drift on the water loosely, but a marker DIRECTLY carries the shards
-   * near it (independent of the water push): within grab range a shard matches
-   * that marker's joystick motion and is sprung toward it, so each player steers
-   * their own cluster with the joystick.
+   * Only the team that just scored (the winner of the goal) can carry the
+   * shards — no tug-of-war. Carried shards each steer toward their own slot in a
+   * ring around the marker (so they move with the joystick but stay spread out
+   * instead of gluing into one blob). Loose shards drift on the water and are
+   * gently drawn toward the winner so they can be gathered.
    */
   private updateShards(dt: number) {
     const tmp = this.scratchVec;
+    const scorer = this.match.lastScorer;
+    const carrier = scorer === 'A' ? this.players[0] : scorer === 'B' ? this.players[1] : null;
+    const carrierActive = !!carrier && carrier.active;
+
     for (const s of this.shards) {
-      // find the nearest active marker and whether it is grabbing this shard
-      let grabber: (typeof this.players)[number] | null = null;
-      let gdx = 0;
-      let gdy = 0;
-      let gd = Infinity;
-      for (const p of this.players) {
-        if (!p.active) continue;
-        const dx = p.pos.x - s.x;
-        const dy = p.pos.y - s.y;
-        const d = Math.hypot(dx, dy);
-        if (d < gd) {
-          gd = d;
-          grabber = p;
-          gdx = dx;
-          gdy = dy;
-        }
+      let dx = 0;
+      let dy = 0;
+      let d = Infinity;
+      if (carrierActive) {
+        dx = carrier!.pos.x - s.x;
+        dy = carrier!.pos.y - s.y;
+        d = Math.hypot(dx, dy);
       }
 
-      if (grabber && gd < SHARD_GRAB_R) {
-        // DIRECT control: match the marker's motion + spring to keep clustered
-        s.vx += (grabber.vel.x - s.vx) * 0.5;
-        s.vy += (grabber.vel.y - s.vy) * 0.5;
-        const spring = 7 * dt;
-        s.vx += gdx * spring;
-        s.vy += gdy * spring;
+      if (carrierActive && d < SHARD_GRAB_R) {
+        // carry: steer toward this shard's formation slot around the marker
+        const tx = carrier!.pos.x + Math.cos(s.angle) * s.formR - s.x;
+        const ty = carrier!.pos.y + Math.sin(s.angle) * s.formR - s.y;
+        s.vx += (carrier!.vel.x - s.vx) * 0.35 + tx * 9 * dt;
+        s.vy += (carrier!.vel.y - s.vy) * 0.35 + ty * 9 * dt;
       } else {
-        // loose: drift on the water + a gentle pull toward the nearest marker
+        // loose: drift on the water + a gentle pull toward the winner's marker
         this.fluid.coarse.sample(s.x, s.y, tmp);
         s.vx += (tmp.x * FIELD_TO_WORLD - s.vx) * 0.12;
         s.vy += (tmp.y * FIELD_TO_WORLD - s.vy) * 0.12;
-        if (grabber && gd < 0.32 && gd > 1e-4) {
-          const f = (1 - gd / 0.32) * 1.4 * dt;
-          s.vx += (gdx / gd) * f;
-          s.vy += (gdy / gd) * f;
+        if (carrierActive && d < 0.4 && d > 1e-4) {
+          const f = (1 - d / 0.4) * 1.3 * dt;
+          s.vx += (dx / d) * f;
+          s.vy += (dy / d) * f;
         }
       }
       s.vx *= 1 - 0.9 * dt;
