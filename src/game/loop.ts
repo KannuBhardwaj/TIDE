@@ -63,17 +63,22 @@ export class TideGame {
     this.bindInput();
   }
 
-  /** seed some dye + motion so the arena looks alive on first frame. */
+  /** teal bioluminescent dye splat at a given strength (keeps colors in ratio). */
+  private splatTealDye(x: number, y: number, strength: number, radius: number) {
+    this.fluid.splatDye(x, y, 0.34 * strength, 0.95 * strength, 0.8 * strength, radius);
+  }
+
+  /** seed a little dye + gentle motion so the arena looks alive on first frame. */
   private seed() {
-    const n = 7;
+    const n = 6;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      const x = 0.5 + Math.cos(a) * 0.28;
-      const y = 0.5 + Math.sin(a) * 0.28;
-      this.fluid.splatDye(x, y, 0.18, 0.5, 0.42, config.pointer.splatRadius);
-      this.fluid.splatVelocity(x, y, Math.cos(a) * -40, Math.sin(a) * -40, 20);
+      const x = 0.5 + Math.cos(a) * 0.26;
+      const y = 0.5 + Math.sin(a) * 0.26;
+      this.splatTealDye(x, y, 0.22, 26);
+      this.fluid.splatVelocity(x, y, Math.cos(a) * -14, Math.sin(a) * -14, 24);
     }
-    this.fluid.splatDye(0.5, 0.5, 0.2, 0.55, 0.45, config.pointer.splatRadius * 1.4);
+    this.splatTealDye(0.5, 0.5, 0.3, 34);
   }
 
   private resize() {
@@ -176,20 +181,14 @@ export class TideGame {
 
   private handleInput(dt: number) {
     const p = this.pointer;
+    const radius = config.pointer.splatRadius * 100;
     // mouse drag -> water force + dye
     if (p.down) {
       const dx = (p.x - p.px) * config.pointer.splatForce;
       const dy = (p.y - p.py) * config.pointer.splatForce;
       if (Math.abs(dx) + Math.abs(dy) > 0.001) {
-        this.fluid.splatVelocity(p.x, p.y, dx, dy, config.pointer.splatRadius * 100);
-        this.fluid.splatDye(
-          p.x,
-          p.y,
-          0.12 * config.pointer.dyeAmount * 60,
-          0.4 * config.pointer.dyeAmount * 60,
-          0.34 * config.pointer.dyeAmount * 60,
-          config.pointer.splatRadius * 100,
-        );
+        this.fluid.splatVelocity(p.x, p.y, dx, dy, radius);
+        this.splatTealDye(p.x, p.y, config.pointer.dyeAmount * 1.8, radius);
       }
     }
     p.px = p.x;
@@ -199,34 +198,34 @@ export class TideGame {
     let kx = 0;
     let ky = 0;
     if (this.keys.has('a') || this.keys.has('arrowleft')) kx -= 1;
-    if (this.keys.has('d') || this.keys.has('arrowright')) kx += 1; // note: 'd' also toggles debug on keydown; here it's hold-steer
+    if (this.keys.has('arrowright')) kx += 1; // 'd' is reserved for the debug toggle
     if (this.keys.has('w') || this.keys.has('arrowup')) ky += 1;
     if (this.keys.has('s') || this.keys.has('arrowdown')) ky -= 1;
     if (kx || ky) {
       const b = this.ball.pos;
-      this.fluid.splatVelocity(b.x - kx * 0.08, b.y - ky * 0.08, kx * 120, ky * 120, 22);
-      this.fluid.splatDye(b.x - kx * 0.08, b.y - ky * 0.08, 0.1, 0.34, 0.28, 22);
+      this.fluid.splatVelocity(b.x - kx * 0.08, b.y - ky * 0.08, kx * 90, ky * 90, 24);
+      this.splatTealDye(b.x - kx * 0.08, b.y - ky * 0.08, 0.14, 24);
     }
 
-    // ambient life: occasional faint currents so the arena breathes
+    // ambient life: a rare faint current so the arena breathes (no dye haze)
     this.ambientT += dt;
-    if (this.ambientT > 1.1) {
+    if (this.ambientT > 1.6) {
       this.ambientT = 0;
       const x = Math.random();
       const y = Math.random();
       const a = Math.random() * Math.PI * 2;
-      this.fluid.splatVelocity(x, y, Math.cos(a) * 18, Math.sin(a) * 18, 30);
-      this.fluid.splatDye(x, y, 0.04, 0.14, 0.12, 40);
+      this.fluid.splatVelocity(x, y, Math.cos(a) * 10, Math.sin(a) * 10, 36);
     }
   }
 
   private injectBallWake() {
     const b = this.ball;
     const sp = b.speed;
-    if (sp < 1e-3) return;
-    // push water in the direction of travel, scaled by speed -> wake
+    if (sp < 0.02) return;
+    // push water in the direction of travel (sub-unity gain) + a dye trail
     const f = config.ball.wakeForce;
-    this.fluid.splatVelocity(b.pos.x, b.pos.y, b.vel.x * f, b.vel.y * f, b.radius * 100 * 0.9);
+    this.fluid.splatVelocity(b.pos.x, b.pos.y, b.vel.x * f, b.vel.y * f, b.radius * 90);
+    this.splatTealDye(b.pos.x, b.pos.y, Math.min(sp * 0.18, 0.12), b.radius * 80);
   }
 
   private tidePulse() {
@@ -234,8 +233,8 @@ export class TideGame {
     const a = Math.random() * Math.PI * 2;
     const x = 0.5 + Math.cos(a) * 0.4;
     const y = 0.5 + Math.sin(a) * 0.4;
-    this.fluid.splatVelocity(x, y, -Math.cos(a) * 90, -Math.sin(a) * 90, 60);
-    this.fluid.splatDye(x, y, 0.1, 0.4, 0.36, 70);
+    this.fluid.splatVelocity(x, y, -Math.cos(a) * 60, -Math.sin(a) * 60, 60);
+    this.splatTealDye(x, y, 0.16, 60);
   }
 
   private render(now: number) {

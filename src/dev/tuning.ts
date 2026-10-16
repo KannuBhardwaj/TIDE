@@ -50,7 +50,7 @@ export const TUNING: TuneGroup[] = [
       f('ball', 'drag', 'Water drag', 1, 24, 0.5),
       f('ball', 'damping', 'Damping', 0, 3, 0.05),
       f('ball', 'restitution', 'Bounce', 0, 1, 0.02),
-      f('ball', 'wakeForce', 'Wake force', 0, 1200, 10),
+      f('ball', 'wakeForce', 'Wake force', 0, 80, 1),
       f('ball', 'maxSpeed', 'Max speed', 0.4, 3, 0.05),
     ],
   },

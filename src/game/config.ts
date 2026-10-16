@@ -35,7 +35,8 @@ export interface TideConfig {
     damping: number;
     /** restitution off walls/arena. */
     restitution: number;
-    /** strength of the wake the ball injects back into the fluid. */
+    /** strength of the wake the ball injects back into the fluid.
+     *  Must stay sub-unity-gain vs `drag` or the coupling runs away. */
     wakeForce: number;
     /** max speed clamp (world units / s). */
     maxSpeed: number;
@@ -63,8 +64,8 @@ export const config: TideConfig = {
   sim: {
     simResolution: 196,
     dyeResolution: 1024,
-    velocityDissipation: 0.6,
-    dyeDissipation: 1.1,
+    velocityDissipation: 0.9,
+    dyeDissipation: 1.7,
     pressure: 0.8,
     pressureIterations: 24,
     curl: 28,
@@ -76,12 +77,12 @@ export const config: TideConfig = {
     drag: 9.0,
     damping: 0.9,
     restitution: 0.72,
-    wakeForce: 420,
-    maxSpeed: 1.6,
+    wakeForce: 14,
+    maxSpeed: 1.1,
     stalemateSeconds: 4,
   },
   pointer: {
-    splatRadius: 0.22,
+    splatRadius: 0.14,
     splatForce: 6000,
     dyeAmount: 0.16,
   },

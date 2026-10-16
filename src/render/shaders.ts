@@ -225,17 +225,21 @@ void main() {
   base += cTeal * 0.015 * rays;
 
   // --- dye / bioluminescence ---
-  float dye = texture(uDye, uv).r; // we store intensity in all channels
   vec3 dyeC = texture(uDye, uv).rgb;
   float d = max(max(dyeC.r, dyeC.g), dyeC.b);
-  float speed = length(texture(uVelocity, uv).xy);
+  // velocity is stored in raw sim units (tens..hundreds); scale to a 0..1-ish
+  // "flow" factor so rose/foam only appear on genuinely fast crests.
+  float flow = clamp(length(texture(uVelocity, uv).xy) * 0.012, 0.0, 1.0);
 
-  // teal core transitioning to rose on fast-moving water
-  vec3 lumin = mix(cTeal, cRose, clamp(speed * 0.12, 0.0, 1.0));
+  // teal core, only tinting toward rose on genuinely fast water (capped so it
+  // stays aurora-teal rather than going fully mauve).
+  vec3 lumin = mix(cTeal, cRose, flow * 0.6);
   vec3 color = base;
   color += lumin * d * (0.9 + 0.8 * glow);
-  // bright crest / foam hint where dye is dense & moving
-  color += cPearl * smoothstep(0.55, 1.1, d) * clamp(speed * 0.08, 0.0, 0.6);
+  // luminous core: dense dye blooms toward white-teal ("liquid light")
+  color += mix(cTeal, cPearl, 0.5) * smoothstep(0.45, 1.2, d) * (0.6 + 0.6 * glow);
+  // bright crest / foam hint where dye is dense & moving fast
+  color += cPearl * smoothstep(0.6, 1.1, d) * flow * 0.5;
 
   // --- the ball: pearl orb with rim + motion stretch ---
   vec2 bp = (uBallPos * 2.0 - 1.0);
