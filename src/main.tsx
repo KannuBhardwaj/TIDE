@@ -2,13 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import './index.css';
-import { ArenaScreen } from './ui/ArenaScreen';
+import { App } from './ui/App';
+import { PhoneController } from './phone/PhoneController';
 
 const router = createBrowserRouter([
-  { path: '/', element: <ArenaScreen /> },
-  // phone controller + dev routes land here in later milestones
-  { path: '/play/:room', element: <ArenaScreen /> },
-  { path: '/dev/tracks', element: <ArenaScreen /> },
+  { path: '/', element: <App /> },
+  { path: '/play/:room', element: <PhoneController /> },
+  // track inspector lands here in M4
+  { path: '/dev/tracks', element: <App /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

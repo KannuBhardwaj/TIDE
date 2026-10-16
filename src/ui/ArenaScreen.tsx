@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { TideGame, type GameStats } from '../game/loop';
 import { TuningPanel } from '../dev/TuningPanel';
 import { Hud } from './Hud';
+import type { HostConnection } from '../net/host';
 
-export function ArenaScreen() {
+export function ArenaScreen({ host }: { host?: HostConnection }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<TideGame | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
@@ -13,13 +14,12 @@ export function ArenaScreen() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let game: TideGame | null = null;
+    let bridgeRaf = 0;
     try {
       game = new TideGame(canvas);
       gameRef.current = game;
-      // dev handle for manual testing + the capture tool
       (window as unknown as { tide?: TideGame }).tide = game;
-      // throttle React updates: the game calls onStats every frame, we store a
-      // ref and flush to state a few times a second.
+
       let last = 0;
       game.onStats = (s) => {
         const now = performance.now();
@@ -28,21 +28,50 @@ export function ArenaScreen() {
           setStats(s);
         }
       };
+
+      if (host) {
+        const g = game;
+        g.onGoal = () => {
+          for (const slot of [0, 1] as const)
+            if (host.slots[slot].connected) host.sendHaptic(slot, [40, 40, 140]);
+        };
+        g.onPush = (slot) => {
+          if (host.slots[slot].connected && host.slots[slot].haptics) host.sendHaptic(slot, [25]);
+        };
+        let fbLast = 0;
+        const bridge = () => {
+          const now = performance.now();
+          for (const slot of [0, 1] as const) {
+            const connected = host.slots[slot].connected;
+            g.setInputMode(slot, connected ? 'external' : 'keyboard');
+            if (connected) {
+              g.setExternalInput(slot, host.getInput(slot));
+              if (now - fbLast > 100) {
+                host.sendFeedback(slot, { ...g.playerFeedback(slot), peak: 0 });
+              }
+            }
+          }
+          if (now - fbLast > 100) fbLast = now;
+          bridgeRaf = requestAnimationFrame(bridge);
+        };
+        bridgeRaf = requestAnimationFrame(bridge);
+      }
+
       game.start();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
     return () => {
+      cancelAnimationFrame(bridgeRaf);
       game?.dispose();
       gameRef.current = null;
     };
-  }, []);
+  }, [host]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-      {/* title lockup */}
       <div className="pointer-events-none absolute left-5 top-4 select-none">
         <div className="font-display text-[26px] font-light leading-none tracking-[0.02em] text-pearl">
           TIDE

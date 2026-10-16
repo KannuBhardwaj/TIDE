@@ -11,7 +11,7 @@ import { paletteRgb } from '../render/palette';
 import { FluidSolver } from '../sim/fluid';
 import { Ball } from '../sim/ball';
 import { Obstacles, type Circle } from '../sim/obstacles';
-import { Player, type Team } from './player';
+import { Player, NEUTRAL_INPUT, type PlayerInput, type Team } from './player';
 import { Match, detectGoal, type MatchState, type GoalGeom } from './match';
 import { readKeyboard, GAME_CODES } from './controllers';
 import { config } from './config';
@@ -70,6 +70,9 @@ export class TideGame {
   // input
   private pointer = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, down: false };
   private codes = new Set<string>();
+  /** per-slot input source: 'keyboard' (dev) or 'external' (phone). */
+  private inputMode: ['keyboard' | 'external', 'keyboard' | 'external'] = ['keyboard', 'keyboard'];
+  private externalInputs: [PlayerInput | null, PlayerInput | null] = [null, null];
 
   // scratch buffers for array uniforms
   private uPos = new Float32Array(4);
@@ -79,6 +82,8 @@ export class TideGame {
   private circles: Circle[] = [];
 
   onStats?: (s: GameStats) => void;
+  onGoal?: (team: Team) => void;
+  onPush?: (slot: 0 | 1) => void;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -178,6 +183,28 @@ export class TideGame {
     this.resetPositions();
   }
 
+  /** route a slot's input to phone ('external') or keyboard. */
+  setInputMode(slot: 0 | 1, mode: 'keyboard' | 'external') {
+    this.inputMode[slot] = mode;
+    if (mode === 'keyboard') this.externalInputs[slot] = null;
+  }
+
+  setExternalInput(slot: 0 | 1, input: PlayerInput | null) {
+    this.externalInputs[slot] = input;
+  }
+
+  /** snapshot for sending feedback to a phone. */
+  playerFeedback(slot: 0 | 1) {
+    const p = this.players[slot];
+    return {
+      energy: p.energy,
+      wall: p.wallActive,
+      pushReady: p.energy >= config.abilities.pushCost,
+      score: { a: this.match.scoreA, b: this.match.scoreB },
+      state: this.match.state as string,
+    };
+  }
+
   /** dev-only: force a goal (used by the capture tool / manual testing). */
   devScore(team: Team) {
     if (this.match.state === 'ended') return;
@@ -225,11 +252,15 @@ export class TideGame {
     this.acc += dtReal;
     let steps = 0;
     const playing = this.match.state === 'playing';
-    const [inA, inB] = readKeyboard(this.codes);
+    const kb = readKeyboard(this.codes);
+    const inA = this.inputMode[0] === 'external' ? this.externalInputs[0] ?? NEUTRAL_INPUT : kb[0];
+    const inB = this.inputMode[1] === 'external' ? this.externalInputs[1] ?? NEUTRAL_INPUT : kb[1];
     while (this.acc >= step && steps < 5) {
       if (playing) {
         this.players[0].update(step, inA, this.fluid);
         this.players[1].update(step, inB, this.fluid);
+        if (this.players[0].pushedThisFrame) this.onPush?.(0);
+        if (this.players[1].pushedThisFrame) this.onPush?.(1);
         this.injectBallWake();
       }
       this.buildObstacles();
@@ -276,6 +307,7 @@ export class TideGame {
     const scorer = detectGoal(this.ball.pos.x, this.ball.pos.y, this.ball.radius, geom);
     if (!scorer) return;
     this.match.registerGoal(scorer);
+    this.onGoal?.(scorer);
     if (scorer === 'A') this.flashA = 1;
     else this.flashB = 1;
     this.goalTimer = config.match.goalFreezeSec;
