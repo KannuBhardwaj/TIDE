@@ -1,0 +1,110 @@
+/**
+ * Ball physics. Operates in arena UV space: [0..1] on both axes, y up.
+ * It samples a coarse water-velocity field (injected as a function so this
+ * module stays pure and unit-testable) and is dragged by the flow, giving the
+ * heavy, momentum-y feel we want. The ball injects a wake back into the fluid
+ * (handled by the caller reading `vel`), closing the two-way coupling loop.
+ */
+import { config } from '../game/config';
+
+/** Maps raw sim-field velocity units into arena world velocity (uv/s). */
+export const FIELD_TO_WORLD = 0.01;
+
+export interface Vec2 {
+  x: number;
+  y: number;
+}
+
+export type WaterSampler = (u: number, v: number, out: Vec2) => void;
+
+export class Ball {
+  pos: Vec2;
+  vel: Vec2 = { x: 0, y: 0 };
+  radius: number;
+  /** seconds the ball has been nearly motionless (for anti-stalemate). */
+  stalledTime = 0;
+  /** set true on the frame a stalemate tide pulse should fire. */
+  tidePulse = false;
+
+  private water: Vec2 = { x: 0, y: 0 };
+
+  constructor(x = 0.5, y = 0.5) {
+    this.pos = { x, y };
+    this.radius = config.ball.radius;
+  }
+
+  reset(x = 0.5, y = 0.5) {
+    this.pos = { x, y };
+    this.vel = { x: 0, y: 0 };
+    this.stalledTime = 0;
+    this.tidePulse = false;
+  }
+
+  get speed(): number {
+    return Math.hypot(this.vel.x, this.vel.y);
+  }
+
+  update(dt: number, sampleWater: WaterSampler) {
+    const c = config.ball;
+    this.radius = c.radius;
+    sampleWater(this.pos.x, this.pos.y, this.water);
+
+    // world-space water velocity under the ball
+    const wvx = this.water.x * FIELD_TO_WORLD;
+    const wvy = this.water.y * FIELD_TO_WORLD;
+
+    // drag toward water velocity (heavier mass => slower response)
+    const k = (c.drag * dt) / c.mass;
+    this.vel.x += (wvx - this.vel.x) * k;
+    this.vel.y += (wvy - this.vel.y) * k;
+
+    // linear damping (settle / heaviness)
+    const damp = Math.max(0, 1 - c.damping * dt);
+    this.vel.x *= damp;
+    this.vel.y *= damp;
+
+    // clamp speed
+    const sp = this.speed;
+    if (sp > c.maxSpeed) {
+      const s = c.maxSpeed / sp;
+      this.vel.x *= s;
+      this.vel.y *= s;
+    }
+
+    // integrate
+    this.pos.x += this.vel.x * dt;
+    this.pos.y += this.vel.y * dt;
+
+    this.collideBounds(c.restitution);
+
+    // anti-stalemate bookkeeping
+    this.tidePulse = false;
+    if (this.speed < 0.03) {
+      this.stalledTime += dt;
+      if (this.stalledTime >= c.stalemateSeconds) {
+        this.tidePulse = true;
+        this.stalledTime = 0;
+      }
+    } else {
+      this.stalledTime = 0;
+    }
+  }
+
+  private collideBounds(restitution: number) {
+    const r = this.radius;
+    if (this.pos.x < r) {
+      this.pos.x = r;
+      this.vel.x = Math.abs(this.vel.x) * restitution;
+    } else if (this.pos.x > 1 - r) {
+      this.pos.x = 1 - r;
+      this.vel.x = -Math.abs(this.vel.x) * restitution;
+    }
+    if (this.pos.y < r) {
+      this.pos.y = r;
+      this.vel.y = Math.abs(this.vel.y) * restitution;
+    } else if (this.pos.y > 1 - r) {
+      this.pos.y = 1 - r;
+      this.vel.y = -Math.abs(this.vel.y) * restitution;
+    }
+  }
+}
