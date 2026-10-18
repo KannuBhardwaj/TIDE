@@ -19,3 +19,6 @@ tools/analyze/__pycache__
 
 # generated media (keep source tracks, ignore scratch renders)
 public/tracks/_scratch
+
+# tsc -b incremental cache
+*.tsbuildinfo

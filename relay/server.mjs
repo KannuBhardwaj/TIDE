@@ -10,7 +10,7 @@
  * slot) and emits presence (peer join/leave) to the host. Payloads are opaque.
  */
 import { WebSocketServer } from 'ws';
-import os from 'node:os';
+import { lanAddresses } from '../tools/start/lan.mjs';
 
 const PORT = Number(process.env.RELAY_PORT) || 8787;
 const MAX_SLOTS = 2;
@@ -128,17 +128,6 @@ function handleClose(ws) {
     send(room.host, { t: 'peer', event: 'leave', slot: ws.slot });
   }
   if (!room.host && room.phones.size === 0) rooms.delete(ws.room);
-}
-
-function lanAddresses() {
-  const out = [];
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const ni of ifaces[name] || []) {
-      if (ni.family === 'IPv4' && !ni.internal) out.push(ni.address);
-    }
-  }
-  return out;
 }
 
 console.log(`\n  TIDE relay listening on :${PORT}`);

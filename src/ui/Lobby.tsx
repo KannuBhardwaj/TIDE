@@ -26,6 +26,26 @@ function QrImg({ text }: { text: string }) {
   );
 }
 
+/** the laptop's best LAN IPv4 (from the dev server), or null if unknown / offline. */
+function useLanIp(enabled: boolean): string | null {
+  const [ip, setIp] = useState<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    fetch('/__tide/lan')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: unknown) => {
+        const ips = (j as { ips?: unknown } | null)?.ips;
+        if (live && Array.isArray(ips) && typeof ips[0] === 'string') setIp(ips[0]);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+  return ip;
+}
+
 function SlotCard({
   name,
   color,
@@ -206,8 +226,10 @@ export function Lobby({
     };
   }, [host]);
 
-  const origin = location.origin;
   const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const lanIp = useLanIp(isLocal);
+  // phones can't reach "localhost" — point the QR codes at the laptop's LAN address instead
+  const origin = isLocal && lanIp ? `${location.protocol}//${lanIp}:${location.port}` : location.origin;
   const phoneUrl = (slot: Slot) => `${origin}/play/${room}?slot=${slot}`;
 
   return (
@@ -243,11 +265,16 @@ export function Lobby({
         <Calibration />
       </div>
 
-      {isLocal && (
+      {isLocal && lanIp && (
+        <div className="mt-4 max-w-xl text-center font-mono text-[11px] text-pearl/40">
+          phones join via <span className="text-teal">{lanIp}</span> — they must be on the same
+          network as this laptop
+        </div>
+      )}
+      {isLocal && !lanIp && (
         <div className="mt-4 max-w-xl rounded-lg border border-gold/30 bg-gold/5 p-3 text-center text-[11px] text-gold/90">
-          You opened the arena at <b>localhost</b>. Phones on the hotspot can&apos;t reach that — open
-          the arena at the laptop&apos;s LAN address (shown when you run <b>npm run dev</b>), or use
-          USB via <b>npm run wired</b>.
+          This laptop has no network address phones can reach. Join (or create) a hotspot and
+          reload, or use USB via <b>npm run wired</b>.
         </div>
       )}
 

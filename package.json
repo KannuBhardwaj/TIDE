@@ -4,7 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "description": "TIDE — a two-player, phone-controlled, music-driven fluid-football game.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "start": "node tools/start/start.mjs",
     "dev": "vite",
     "relay": "node relay/server.mjs",
     "wired": "node tools/wired/wired.mjs",

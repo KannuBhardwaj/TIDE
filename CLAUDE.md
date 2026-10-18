@@ -8,6 +8,7 @@ Two-player, phone-controlled, music-driven fluid-football. Laptop = arena (WebGL
 ## Commands
 ```bash
 npm install          # install deps
+npm start            # one command: preflight + relay + dev server (what users run)
 npm run dev          # Vite dev server (arena at /, phone at /play/:room, dev at /dev/*)
 npm run relay        # start the local ws relay server
 npm run wired        # detect Android devices, adb reverse ports, launch controllers (M3+)
@@ -41,7 +42,7 @@ Midnight teal-black water (`#04141A`→`#072028`), auroral green-teal dye, pearl
 
 ## Verification workflow
 - After each milestone: run the app, verify it works, **take Playwright screenshots/short recordings and review them yourself**; fix anything flat/ugly/aliased/low-energy before showing the user.
-- Keep debug view (key **D**) working — it's shown to judges.
+- Keep debug view (key **`** backtick — D is a movement key) working — it's shown to judges.
 
 ## Perf targets
 - ~60 fps on the RTX 5060 rig at high quality. Quality governor auto-downgrades render scale / sim res / bloom if frame time rises. Manual quality setting also available.
