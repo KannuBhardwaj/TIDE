@@ -693,6 +693,14 @@ export class TideGame {
     gl.uniform1f(p.uniforms.uPostRadius, config.arena.postRadius);
     gl.uniform1f(p.uniforms.uGoalFlashA, this.flashA);
     gl.uniform1f(p.uniforms.uGoalFlashB, this.flashB);
+    const gfx = config.goalFx;
+    gl.uniform1f(p.uniforms.uLipWidth, gfx.lipWidth);
+    gl.uniform1f(p.uniforms.uLipBrightness, gfx.lipBrightness);
+    gl.uniform1f(p.uniforms.uAuraFalloff, gfx.auraFalloff);
+    gl.uniform1f(p.uniforms.uAuraStrength, gfx.auraStrength);
+    gl.uniform1f(p.uniforms.uBeatPulse, gfx.beatPulse);
+    gl.uniform1f(p.uniforms.uGoalBuild, gfx.buildGain);
+    gl.uniform1f(p.uniforms.uGoalFlashGain, gfx.flashGain);
 
     // crescendo edge glow (rose-gold accent, or the track's accent)
     const accent = this.music.accent();

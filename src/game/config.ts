@@ -83,6 +83,16 @@ export interface TideConfig {
     goalHalfHeight: number; // half the goal-mouth height (uv)
     postRadius: number; // goal-post obstacle radius (uv)
   };
+  /** goal-mouth look: crisp lip on the goal line + team-colour aura. */
+  goalFx: {
+    lipWidth: number; // lip half-width (uv x)
+    lipBrightness: number;
+    auraFalloff: number; // aura e-fold distance into the field (uv x)
+    auraStrength: number; // aura brightness (keep well under the lip)
+    beatPulse: number; // extra brightness at a full beat
+    buildGain: number; // extra brightness at full crescendo
+    flashGain: number; // extra brightness on a score
+  };
   match: {
     goalsToWin: number;
     goalFreezeSec: number; // pause after a goal before reset
@@ -158,6 +168,15 @@ export const config: TideConfig = {
     goalInset: 0.035,
     goalHalfHeight: 0.16,
     postRadius: 0.028,
+  },
+  goalFx: {
+    lipWidth: 0.0028,
+    lipBrightness: 1.6,
+    auraFalloff: 0.045,
+    auraStrength: 0.5,
+    beatPulse: 0.35,
+    buildGain: 0.6,
+    flashGain: 1.8,
   },
   match: {
     goalsToWin: 5,

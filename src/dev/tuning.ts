@@ -89,6 +89,19 @@ export const TUNING: TuneGroup[] = [
     ],
   },
   {
+    title: 'Goals',
+    group: 'goalFx',
+    fields: [
+      f('goalFx', 'lipWidth', 'Lip width', 0.0005, 0.008, 0.0001),
+      f('goalFx', 'lipBrightness', 'Lip bright', 0, 4, 0.05),
+      f('goalFx', 'auraFalloff', 'Aura falloff', 0.005, 0.12, 0.001),
+      f('goalFx', 'auraStrength', 'Aura bright', 0, 1.5, 0.02),
+      f('goalFx', 'beatPulse', 'Beat pulse', 0, 1.5, 0.05),
+      f('goalFx', 'buildGain', 'Build gain', 0, 2, 0.05),
+      f('goalFx', 'flashGain', 'Score flash', 0, 4, 0.05),
+    ],
+  },
+  {
     title: 'Render',
     group: 'render',
     fields: [

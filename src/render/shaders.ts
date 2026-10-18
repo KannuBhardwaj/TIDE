@@ -278,6 +278,13 @@ uniform float uGoalHalf;
 uniform float uPostRadius;
 uniform float uGoalFlashA;
 uniform float uGoalFlashB;
+uniform float uLipWidth;      // half-width of the goal-line lip (uv)
+uniform float uLipBrightness;
+uniform float uAuraFalloff;   // aura e-fold distance into the field (uv)
+uniform float uAuraStrength;
+uniform float uBeatPulse;     // extra brightness at a full beat
+uniform float uGoalBuild;     // extra brightness at full crescendo
+uniform float uGoalFlashGain; // extra brightness on a score
 // crescendo
 uniform float uEdgeGlow;   // 0..1 intensity
 uniform float uBeat;       // 0..1 beat pulse
@@ -331,13 +338,38 @@ void main() {
   // subtle luminous core only where dye is very dense (restrained)
   color += mix(cTeal, cPearl, 0.4) * smoothstep(0.7, 1.3, d) * (0.25 * glow);
 
-  // --- goals: glowing mouths at each end (left = Team A, right = Team B) ---
-  float mouth = step(0.5 - uGoalHalf, uv.y) * step(uv.y, 0.5 + uGoalHalf);
-  float gL = mouth * smoothstep(uGoalInset * 2.2, 0.0, uv.x);
-  float gR = mouth * smoothstep(uGoalInset * 2.2, 0.0, 1.0 - uv.x);
-  color += cTeamA * gL * (0.22 + 0.9 * uGoalFlashA);
-  color += cTeamB * gR * (0.22 + 0.9 * uGoalFlashB);
-  // goal posts (solid-looking bright discs at the mouth edges)
+  // --- goals: crisp pearl lip on the goal line + team-colour aura falling
+  //     off into the field (left = Team A, right = Team B). Both breathe with
+  //     the beat, swell with the crescendo, and go white-hot on a score. ---
+  vec2 aa = fwidth(uv) * 1.2;
+  float dy = abs(uv.y - 0.5);
+  float lipSpan = 1.0 - smoothstep(uGoalHalf - aa.y, uGoalHalf + aa.y, dy);
+  // vertical overshoot past the posts, in uv-x units so the aura is a round
+  // capsule around the lip rather than a hard-edged slab
+  float overY = max(dy - uGoalHalf, 0.0) / aspectRatio;
+  float energy = (1.0 + uBeatPulse * uBeat * uBeat) * (1.0 + uGoalBuild * uEdgeGlow);
+  vec3 hotC[2];
+  float boostC[2];
+  for (int side = 0; side < 2; side++) {
+    // signed distance from the goal line, + into the field, - into the pocket
+    float sx = side == 0 ? uv.x - uGoalInset : (1.0 - uGoalInset) - uv.x;
+    float flash = side == 0 ? uGoalFlashA : uGoalFlashB;
+    vec3 tc = side == 0 ? cTeamA : cTeamB;
+    vec3 hot = mix(tc, vec3(1.0), flash * 0.85);
+    float boost = energy + uGoalFlashGain * flash;
+    hotC[side] = hot;
+    boostC[side] = boost;
+    float lip = 1.0 - smoothstep(uLipWidth - aa.x, uLipWidth + aa.x, abs(sx));
+    float lipCore = 1.0 - smoothstep(0.0, uLipWidth, abs(sx));
+    float sheen = exp(-abs(sx) / (uLipWidth * 3.0)) * 0.35;
+    // pocket (sx < 0) stays lit; field side falls off with a slow shimmer
+    float aura = exp(-length(vec2(max(sx, 0.0), overY)) / uAuraFalloff);
+    aura *= 0.8 + 0.4 * noise(vec2(uv.y * 14.0 - time * 0.5, sx * 30.0 + time * 0.2));
+    color += hot * aura * uAuraStrength * boost;
+    vec3 lipC = mix(hot, mix(cPearl, vec3(1.0), flash), 0.25 + 0.6 * lipCore);
+    color += lipC * (lip + sheen) * lipSpan * uLipBrightness * boost;
+  }
+  // goal posts: bright capped discs anchoring each end of the lip
   float postR = uPostRadius * 2.0;
   vec2 posts[4];
   posts[0] = uvToP(vec2(uGoalInset, 0.5 - uGoalHalf));
@@ -345,10 +377,15 @@ void main() {
   posts[2] = uvToP(vec2(1.0 - uGoalInset, 0.5 - uGoalHalf));
   posts[3] = uvToP(vec2(1.0 - uGoalInset, 0.5 + uGoalHalf));
   for (int i = 0; i < 4; i++) {
-    vec3 pc = i < 2 ? cTeamA : cTeamB;
+    int side = i < 2 ? 0 : 1;
+    vec3 pc = hotC[side];
+    float pb = uLipBrightness * boostC[side];
+    float pd = length(p - posts[i]);
     float pf = discFill(p, posts[i], postR);
-    color = mix(color, mix(pc, cPearl, 0.3), pf * 0.9);
-    color += pc * ringGlow(p, posts[i], postR) * 0.25;
+    float pcore = smoothstep(postR * 0.9, 0.0, pd);
+    color = mix(color, pc * 0.8 * pb, pf);
+    color += mix(pc, cPearl, 0.7) * pcore * pcore * 0.7 * pb;
+    color += pc * exp(-pd / postR) * 0.2 * boostC[side];
   }
 
   // --- player markers + walls ---
