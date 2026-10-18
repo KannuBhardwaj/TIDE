@@ -86,6 +86,8 @@ export const TUNING: TuneGroup[] = [
       f('abilities', 'pinchDrain', 'Pinch drain', 0.05, 0.8, 0.02),
       f('abilities', 'wallRadius', 'Wall radius', 0.04, 0.16, 0.005),
       f('abilities', 'wallDrain', 'Wall drain', 0.1, 0.9, 0.02),
+      f('abilities', 'wallNote0', 'Wall note P1', -12, 12, 1),
+      f('abilities', 'wallNote1', 'Wall note P2', -12, 12, 1),
     ],
   },
   {

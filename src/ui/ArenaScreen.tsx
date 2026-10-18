@@ -34,7 +34,14 @@ export function ArenaScreen({
 
       if (music) {
         game.setMusic(music);
-        music.onEnded = () => game?.finishByTrack();
+        // track over mid-game: stay silent (or end the match, if configured)
+        music.onEnded = () => {
+          if (config.match.endOnTrackEnd) game?.finishByTrack();
+        };
+        // next game: restart a finished track; a still-playing one carries on
+        game.onMatchStart = () => {
+          if (!music.playing) music.play();
+        };
       }
 
       // ---- SFX wiring ----
@@ -60,7 +67,8 @@ export function ArenaScreen({
             const pl = a.players[slot];
             const wk = `wall${slot}`;
             if (pl.active && pl.wall) {
-              sfx.startWall(wk, pl.x);
+              const note = slot === 0 ? config.abilities.wallNote0 : config.abilities.wallNote1;
+              sfx.startWall(wk, pl.x, note);
               sfx.updateVoice(wk, { x: pl.x, peak: a.peak ? 1 : a.glow });
             } else sfx.stop(wk);
             const pk = `pinch${slot}`;

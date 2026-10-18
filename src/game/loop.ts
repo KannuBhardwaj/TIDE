@@ -148,6 +148,8 @@ export class TideGame {
   onGoal?: (team: Team) => void;
   onPush?: (slot: 0 | 1, x: number, power: number) => void;
   onBallHit?: (x: number, strength: number, kind: 'wall' | 'bound') => void;
+  /** a fresh match just began (R restart). */
+  onMatchStart?: () => void;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -247,6 +249,7 @@ export class TideGame {
   private restartMatch() {
     this.match.reset();
     this.resetPositions();
+    this.onMatchStart?.();
   }
 
   /** route a slot's input to phone ('external') or keyboard. */

@@ -62,7 +62,9 @@ export function App() {
   }
 
   function enterArena() {
-    musicRef.current?.play();
+    // a track still playing from a previous game carries on
+    const music = musicRef.current;
+    if (music && !music.playing) music.play();
     setScreen('play');
   }
 

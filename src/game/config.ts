@@ -77,6 +77,9 @@ export interface TideConfig {
     wallRadius: number;
     wallDrain: number; // energy per second while held
     wallMinEnergy: number; // needed to (re)raise a wall
+    /** wall-hum note per slot, semitones above the track key root (0+7 = power chord). */
+    wallNote0: number;
+    wallNote1: number;
   };
   arena: {
     goalInset: number; // goal line distance from the x edge (uv)
@@ -96,6 +99,8 @@ export interface TideConfig {
   match: {
     goalsToWin: number;
     goalFreezeSec: number; // pause after a goal before reset
+    /** end the match (leader wins) when the track finishes; else play on in silence. */
+    endOnTrackEnd: boolean;
   };
   crescendo: {
     /** ability power multiplier added at full intensity (1 -> 1+gain). */
@@ -163,6 +168,8 @@ export const config: TideConfig = {
     wallRadius: 0.09,
     wallDrain: 0.35,
     wallMinEnergy: 0.1,
+    wallNote0: 0,
+    wallNote1: 7,
   },
   arena: {
     goalInset: 0.035,
@@ -181,6 +188,7 @@ export const config: TideConfig = {
   match: {
     goalsToWin: 5,
     goalFreezeSec: 1.4,
+    endOnTrackEnd: false,
   },
   crescendo: {
     intensityGain: 0.6,

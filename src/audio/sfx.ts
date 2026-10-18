@@ -11,6 +11,14 @@ const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi 
 /** semitone ratio helper. */
 const semi = (n: number) => Math.pow(2, n / 12);
 
+/** just-intonation ratios for consonant intervals (no beating between saw stacks). */
+const JUST: Record<number, number> = { 0: 1, 3: 6 / 5, 4: 5 / 4, 5: 4 / 3, 7: 3 / 2, 12: 2 };
+const interval = (n: number) => {
+  const oct = Math.floor(n / 12);
+  const pc = n - oct * 12;
+  return (JUST[pc] ?? semi(pc)) * Math.pow(2, oct);
+};
+
 export class SfxEngine {
   private ctx: AudioContext;
   private bus: GainNode; // dry/wet sum point
@@ -237,8 +245,11 @@ export class SfxEngine {
 
   // ---------- continuous voices ----------
 
-  /** WALL hum: detuned tonal stack; brighter/higher at the peak. */
-  startWall(key: string, x: number) {
+  /**
+   * WALL hum: detuned tonal stack; brighter/higher at the peak. `semitones`
+   * sets the note above the key root, so each player's wall is its own chord tone.
+   */
+  startWall(key: string, x: number, semitones = 0) {
     if (this.sustained.has(key)) return;
     const t = this.ctx.currentTime;
     const osc1 = this.ctx.createOscillator();
@@ -257,7 +268,9 @@ export class SfxEngine {
     osc2.connect(lp);
     lp.connect(g).connect(pan);
     this.route(pan, 0.3);
-    const base = this.root * 1.5;
+    const ratio = interval(Math.round(semitones));
+    const base = this.root * 2 * ratio;
+    lp.frequency.value = 600 * ratio; // keep the timbre consistent across notes
     osc1.frequency.value = base;
     osc2.frequency.value = base * semi(0.15);
     osc1.start(t);
@@ -270,7 +283,7 @@ export class SfxEngine {
         pan.pan.setTargetAtTime(clamp((p.x ?? 0.5) * 2 - 1, -1, 1), now, 0.05);
         osc1.frequency.setTargetAtTime(base * semi(peak * 7), now, 0.06);
         osc2.frequency.setTargetAtTime(base * semi(peak * 7 + 0.15), now, 0.06);
-        lp.frequency.setTargetAtTime(600 + peak * 2600, now, 0.06);
+        lp.frequency.setTargetAtTime((600 + peak * 2600) * ratio, now, 0.06);
         g.gain.setTargetAtTime(0.12 + peak * 0.1, now, 0.08);
       },
       stop: () => {

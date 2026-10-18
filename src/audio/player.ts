@@ -126,6 +126,7 @@ export class MusicPlayer implements MusicRuntime {
 
   beatPulse(): number {
     if (!this.track || !this.playing) return 0;
+    if (this.time() < this.track.offset) return 0; // no beats in the lead-in
     const phase = beatPhase(this.track, this.time());
     const spike = Math.pow(1 - phase, 3); // 1 at a beat, decaying
     return spike * intensityAt(this.track, this.time());
